@@ -8,8 +8,9 @@
 **"흐름·모순 추적기(Flow & Contradiction Tracker)"** — 회의 처음과 끝처럼 멀리 떨어진 발언을
 대조해 균열을 짚어낸다.
 
-> ⚙️ **상태**: 설계 확정 · 구현 전 (아래 [구축 순서](#구축-순서-mvp-우선) 참고)
+> ⚙️ **상태**: 설계 확정 · [구축 순서](#구축-순서-mvp-우선) 1단계(STT 측정 코어) 완료 — [`benchmarks/stt/`](benchmarks/stt/)
 > 📄 제품 구상·감지 정의 [`docs/spec.md`](docs/spec.md) · 데이터 계약 [`docs/data-schema.json`](docs/data-schema.json)
+> 🧭 진행 관리: 계획 [`plan.md`](plan.md) · 작업 로그 [`changeLog.md`](changeLog.md) · 함정 기록 [`troubleshooting.md`](troubleshooting.md)
 
 ---
 
