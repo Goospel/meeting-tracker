@@ -1,0 +1,9 @@
+{
+  "clip_id": "budget_meeting_demo",
+  "provider": "aws_mock",
+  "note": "데모 전용 합성 hypothesis — 실제 API 호출 아님. 치명 토큰 오인식을 인위로 주입한 가상 사례.",
+  "segments": {
+    "s1": "예산은 2천만원까지 무리 없이 쓸 수 있어요",
+    "s2": "9월 셋째 주 출시로 확정합시다"
+  }
+}
