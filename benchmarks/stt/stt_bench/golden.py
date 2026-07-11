@@ -12,6 +12,7 @@ import unicodedata
 from pathlib import Path
 
 from .entities import CriticalEntity, EntityType, Segment
+from .korean_datetime import parse_date, parse_time
 
 
 def load_golden(path: str | Path) -> dict:
@@ -66,6 +67,18 @@ def validate_golden(golden: dict) -> bool:
                 )
             if not e.canonical:
                 raise ValueError(f"{e.entity_id}: canonical 비어있음")
+            # DATE/TIME 과소명세 차단 (F10): surface가 담은 필드를 canonical이 다 pin해야 한다.
+            # (예: surface '8월 15일'인데 canonical {month:8}만이면 day 반전이 은폐됨)
+            if e.type in (EntityType.DATE, EntityType.TIME):
+                parsed = (parse_date if e.type == EntityType.DATE else parse_time)(e.surface)
+                if not parsed:
+                    raise ValueError(f"{e.entity_id}: {e.type.value} surface {e.surface!r} 파싱 실패")
+                for k, v in parsed.items():
+                    if e.canonical.get(k) != v:
+                        raise ValueError(
+                            f"{e.entity_id}: {e.type.value} canonical이 surface 필드 "
+                            f"{k}={v!r}를 누락/불일치 (canonical={e.canonical})"
+                        )
     return True
 
 

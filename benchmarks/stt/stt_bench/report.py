@@ -25,6 +25,15 @@ def score_meeting(golden: dict, hyp: dict) -> dict:
     fcs, mts, seg_cer = [], [], {}
     hyp_segs = hyp["segments"]
 
+    # 조인 키 가드 (F6): id가 하나도 안 맞으면 '전부 삭제'로 조용히 오독하지 않게 즉시 실패.
+    golden_ids = [seg.segment_id for seg in golden["segments"]]
+    if golden_ids and not any(sid in hyp_segs for sid in golden_ids):
+        raise ValueError(
+            f"hypothesis 세그먼트 id가 골든과 하나도 안 맞습니다 "
+            f"(골든 {golden_ids} vs hyp {list(hyp_segs)}). 조인 키를 확인하세요."
+        )
+    uncovered = [sid for sid in golden_ids if sid not in hyp_segs]
+
     for seg in golden["segments"]:
         htext = hyp_segs.get(seg.segment_id, "")
         cs = score_clip(seg.text, seg.critical_entities, htext)
@@ -44,6 +53,7 @@ def score_meeting(golden: dict, hyp: dict) -> dict:
         "false_contradiction_candidates": fcs,
         "missed_token_candidates": mts,
         "per_segment_cer": seg_cer,
+        "uncovered_segments": uncovered,
     }
 
 
@@ -53,6 +63,8 @@ def render_report(golden: dict, hyp: dict, merged: dict) -> str:
     L.append("")
     L.append(f"- provider: **{hyp['provider']}**")
     L.append("- ⚠️ **데모/모의 데이터** — 실제 CLOVA/AWS API 호출이 아닙니다(합성 hypothesis). 실측 결과 아님.")
+    if merged.get("uncovered_segments"):
+        L.append(f"- ⚠️ hypothesis에 없는 골든 세그먼트 {merged['uncovered_segments']} — 전부 삭제로 채점됨(조인 키 확인).")
     L.append("")
     L.append("## 엔티티 유형별 — CTER(치명 토큰 오류율)이 1순위 KPI")
     L.append("")

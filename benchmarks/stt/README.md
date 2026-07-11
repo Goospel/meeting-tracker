@@ -39,11 +39,16 @@ stt_bench/
   korean_datetime.py 날짜/시각 파서 — N월·주차·초중말, N시·반·N분
   entities.py        CriticalEntity/Segment 데이터 모델 (치명 토큰은 사람이 수동 주석)
   score.py           CTER 채점기 — 스팬 투영·값 등가 비교·sub/del 분리·모순 후보 수집
-  golden.py          골든셋 로더 + 검증 게이트(NFC·오프셋 불변식)
-  report.py          회의 단위 병합 + 마크다운 리포트 + CLI
+  golden.py          골든셋 로더 + 검증 게이트(NFC·오프셋·DATE/TIME 과소명세 차단)
+  report.py          회의 단위 병합 + 마크다운 리포트 + CLI (세그먼트 조인 키 가드)
 fixtures/            데모용 골든셋 + 모의 hypothesis (합성 — 실측 아님)
-tests/               49개 테스트 (방법론 스펙의 케이스를 회귀로 고정)
+tests/               77개 테스트 (방법론 스펙 케이스 + 적대적 리뷰 회귀 13종)
 ```
+
+> 🔍 구현 후 다중 에이전트 적대적 코드리뷰를 1회 돌려, 한국어 파서·스팬 투영의
+> 무성 실패 13건(예: '일' 날짜마커가 한자어 1과 충돌, 고유어 합성 수사 '열두=12'
+> 미파싱, 과대 스팬이 값 반전을 삭제로 오분류)을 잡아 전부 회귀 테스트로 고정했다.
+> `tests/test_regressions.py` 참고.
 
 ## 실행
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from .cer import CerResult, align_ops, cer
 from .entities import CriticalEntity, EntityType
 from .korean_datetime import parse_date, parse_time
-from .korean_numbers import parse_number
+from .korean_numbers import NUM_CORE, parse_number
 from .normalize import to_nfc
 
 # 조사 — PROPER_NOUN 비교 전 후행 조사를 벗긴다 (재무팀과 → 재무팀).
@@ -102,6 +102,28 @@ def _strip_particles(w: str) -> str:
     return w
 
 
+def _salvage_number(span: str):
+    """과대 스팬(F3)에서 파싱 가능한 최선의 수를 복구.
+
+    스팬 투영이 선행 동형 글자 쌍둥이에 앵커돼 무관한 텍스트를 삼키면 직접 파싱이
+    실패한다. 이때 수(數) 문자를 가장 많이 담은 '파싱 성공' 부분문자열을 골라
+    값 반전(sub)을 삭제(del)로 오분류하는 것을 막는다.
+    """
+    best = None
+    best_core = 0
+    n = len(span)
+    for i in range(n):
+        for j in range(i + 1, n + 1):
+            sub = span[i:j]
+            core = sum(1 for c in sub if c in NUM_CORE)
+            if core <= best_core:
+                continue
+            r = parse_number(sub)
+            if r.kind in ("value", "range"):
+                best, best_core = r, core
+    return best
+
+
 def _gval(ent: CriticalEntity):
     c = ent.canonical
     if "value" in c:
@@ -124,6 +146,8 @@ def _classify(ent: CriticalEntity, span: str):
     if t in _NUMERIC_TYPES:
         r = parse_number(span)
         if r.kind == "none":
+            r = _salvage_number(span)          # 과대 스팬 복구 (F3)
+        if r is None or r.kind == "none":
             return "deleted", None            # 값이 뭉개져 사라짐 → 놓친 모순
         if r.kind in ("range", "ambiguous"):
             return "ambiguous", None          # 정규화기 구멍 아님 — needs-review
@@ -152,10 +176,12 @@ def _classify(ent: CriticalEntity, span: str):
         return ("hit" if ok else "value_mismatch"), parsed
 
     if t == EntityType.PROPER_NOUN:
-        core = _strip_particles(span)
         canon = ent.canonical.get("canonical", ent.surface)
-        ok = core == canon or core in set(ent.aliases)
-        return ("hit" if ok else "value_mismatch"), core
+        allowed = {canon} | set(ent.aliases)
+        # 조사 붙은 형/안 붙은 형 모두 허용 — 조사 동형 말미 오버스트립 방지 (F5)
+        variants = {span, _strip_particles(span)}
+        ok = bool(variants & allowed)
+        return ("hit" if ok else "value_mismatch"), span
 
     return "ambiguous", None
 

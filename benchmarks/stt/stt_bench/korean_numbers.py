@@ -4,10 +4,15 @@ STT가 '3천만원'을 '2천만원'으로 오인식하면 모순감지 입력이
 표면형이 달라도(3천만 = 삼천만 = 30,000,000) 같은 값이면 같게, 값이 다르면 다르게
 본다. 범위('이삼천만')·근사('약~정도')는 단일 값으로 뭉개지 않고 분리 반환해
 'None → 삭제'로 조용히 흡수되는 편향을 막는다.
+
+단위(원·번·%·개…)는 화이트리스트가 아니라 "수(數) 문자가 아닌 후행 런"으로 일반
+분리하고, 고유어 합성 수사(열두=12, 스물셋=23)와 소수점(3.5)까지 값으로 읽는다
+— 이 셋을 놓치면 정상 인식된 치명 토큰이 삭제로 오집계된다(코드리뷰 F4/F7/F9).
 """
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -19,26 +24,29 @@ SINO_DIGIT = {
 SMALL_UNIT = {"십": 10, "백": 100, "천": 1000}
 BIG_UNIT = {"만": 10**4, "억": 10**8, "조": 10**12, "경": 10**16}
 
-# 고유어 수관형사/수사 (이형태 포함)
+# 고유어 수사 — 단일 토큰(단독 사용형)
 NATIVE = {
     "하나": 1, "한": 1, "둘": 2, "두": 2, "셋": 3, "세": 3, "넷": 4, "네": 4,
     "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10,
     "스물": 20, "스무": 20, "서른": 30, "마흔": 40, "쉰": 50,
     "예순": 60, "일흔": 70, "여든": 80, "아흔": 90,
 }
+# 고유어 합성용 — 십의 자리 + 일의 자리 (열두=열+두, 스물셋=스물+셋)
+NATIVE_TENS = {"열": 10, "스물": 20, "스무": 20, "서른": 30, "마흔": 40,
+               "쉰": 50, "예순": 60, "일흔": 70, "여든": 80, "아흔": 90}
+NATIVE_ONES = {"하나": 1, "한": 1, "둘": 2, "두": 2, "셋": 3, "세": 3,
+               "넷": 4, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9}
+_TENS_KEYS = sorted(NATIVE_TENS, key=len, reverse=True)
+
+# 수(數) 문자 집합 — 이 밖의 후행 런은 단위로 분리한다.
+_NATIVE_CHARS = set("".join(list(NATIVE) + list(NATIVE_TENS) + list(NATIVE_ONES)))
+NUM_CORE = set("0123456789.,") | set(SINO_DIGIT) | set(SMALL_UNIT) | set(BIG_UNIT) | _NATIVE_CHARS
 
 # 근사·헤지 표지 ('한'은 고유어 1과 충돌하므로 제외)
 _HEDGE = ("약", "대략", "얼추", "거의", "정도", "쯤", "가량", "남짓")
 
-# 후행 단위/분류사 (길이 내림차순으로 최장일치)
-_UNITS = (
-    "퍼센트", "포인트", "인분", "달러", "그램",
-    "원", "명", "편", "개", "권", "장", "대", "채", "벌", "마리", "병", "잔",
-    "층", "호", "건", "회", "차", "배", "톤", "프로", "%",
-)
-_UNITS_SORTED = sorted(_UNITS, key=len, reverse=True)
-
 _RANGE_SEPS = ("~", "∼", "〜", "–", "—")
+_DEC_RE = re.compile(r"\d+(?:\.\d+)?")
 
 
 @dataclass
@@ -50,6 +58,18 @@ class NumberParse:
     unit: str | None = None
     hedge: bool = False
     reason: str = ""
+
+
+def _parse_native(core: str) -> int | None:
+    """고유어 수사(단일 또는 십+일 합성)를 정수로. 아니면 None."""
+    if core in NATIVE:
+        return NATIVE[core]
+    for tens in _TENS_KEYS:
+        if core.startswith(tens) and len(core) > len(tens):
+            ones = core[len(tens):]
+            if ones in NATIVE_ONES:
+                return NATIVE_TENS[tens] + NATIVE_ONES[ones]
+    return None
 
 
 def _parse_sino_arabic(s: str) -> int | None:
@@ -109,25 +129,28 @@ def parse_number(text: str) -> NumberParse:
         if h in s:
             hedge = True
             s = s.replace(h, " ")
-    s = s.strip()
+    s = s.rstrip()
 
-    unit = None
-    for u in _UNITS_SORTED:
-        if s.endswith(u):
-            unit = u
-            s = s[: -len(u)].strip()
-            break
-
-    core = s.replace(",", "").replace(" ", "")
+    # 후행 단위 = 수 문자가 아닌 마지막 런(사이 공백 허용). 화이트리스트 불필요.
+    k = len(s)
+    while k > 0 and s[k - 1] not in NUM_CORE:
+        k -= 1
+    unit = s[k:].strip() or None
+    core = s[:k].replace(",", "").replace(" ", "")
     if not core:
         return NumberParse("none", unit=unit, hedge=hedge, reason="no-number")
+
+    if _DEC_RE.fullmatch(core):
+        value = float(core) if "." in core else int(core)
+        return NumberParse("value", value=value, unit=unit, hedge=hedge)
 
     rng = _detect_range(core)
     if rng is not None:
         return NumberParse("range", low=rng[0], high=rng[1], unit=unit, hedge=hedge)
 
-    if core in NATIVE:
-        return NumberParse("value", value=NATIVE[core], unit=unit, hedge=hedge)
+    nv = _parse_native(core)
+    if nv is not None:
+        return NumberParse("value", value=nv, unit=unit, hedge=hedge)
 
     val = _parse_sino_arabic(core)
     if val is None:
