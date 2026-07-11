@@ -2,8 +2,7 @@
 
 녹음 없이 벤치마크 데이터를 확보하는 2트랙 중 Track A. 회의를 인라인 마크업
 스크립트로 **한 번만** 작성하면, 빌더가 같은 소스에서
-  (1) CTER 골든 JSON — 문자 오프셋·canonical을 파서로 자동 산출해
-      validate_golden 게이트를 '구성상' 통과시킨다(수동 오프셋 오류 원천 차단).
+  (1) CTER 골든 JSON — 문자 오프셋을 자동 계산.
   (2) TTS 렌더 매니페스트 — 마크업을 벗긴 화자별 발화.
 를 파생한다 → 골든과 렌더 오디오가 어긋날 수 없다(무드리프트).
 
@@ -13,11 +12,17 @@
 
 canonical은 저자가 쓰지 않고 parse_number/parse_date/parse_time으로 파생한다
 — surface가 곧 정답 텍스트이므로 '값 등가 정답'은 그 파싱 결과여야 한다. 파싱
-불가한 surface는 즉시 에러(게이트와 같은 규율).
+불가하거나 오탈·불균형 마크업은 즉시 에러(무성 실패 차단).
 
-실행(골든 픽스처 재생성):
+검증 주의: 오프셋 불변식(text[cs:ce]==surface)은 자동 계산이라 '구성상' 성립하고
+validate_golden이 이를 실제로 검사한다. 반면 canonical은 파서 파생이라
+validate_golden의 canonical 대조(_check_canonical)는 자명하게 통과할 뿐 — 파서
+자체의 오파싱은 게이트가 못 잡는다(양쪽이 같은 파서). 그 방어는 회귀 테스트가 진다.
+
+실행(골든 + 매니페스트 재생성):
     python -m stt_bench.synth --script fixtures/synth/budget_reversal.script.json \
-        --out fixtures/golden/synth_budget_reversal.json
+        --out fixtures/golden/synth_budget_reversal.json \
+        --manifest-out fixtures/synth/budget_reversal.manifest.json
 """
 
 from __future__ import annotations
@@ -48,15 +53,20 @@ def _strip_markup(raw: str) -> tuple[str, list[dict]]:
     for m in _MARKUP.finditer(raw):
         clean += raw[idx:m.start()]
         parts = m.group(1).split("|")
+        if len(parts) > 3:
+            raise ValueError(f"마크업 필드 과다 (surface|TYPE|key만 지원): {m.group(1)!r}")
         surface = parts[0]
-        etype = parts[1] if len(parts) > 1 else ""
-        key = parts[2] if len(parts) > 2 and parts[2] else None
+        etype = parts[1].strip() if len(parts) > 1 else ""   # TYPE 앞뒤 공백 허용
+        key = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
         cs = len(clean)
         clean += surface
         spans.append({"surface": surface, "type": etype, "key": key,
                       "char_start": cs, "char_end": len(clean)})
         idx = m.end()
     clean += raw[idx:]
+    # 오탈·불균형 마크업이 조용히 새는 것 차단 — 무성 실패는 이 빌더의 최악 실패모드.
+    if "[[" in clean or "]]" in clean:
+        raise ValueError(f"불균형/오탈 마크업이 남았습니다 (닫는 ']]' 확인): {raw!r}")
     return clean, spans
 
 
@@ -83,7 +93,8 @@ def _derive_canonical(etype: str, surface: str) -> dict:
         if r.kind != "value":
             raise ValueError(f"{etype} surface {surface!r} 값 파싱 실패 ({r.kind})")
         if etype == "AMOUNT":
-            return {"value": r.value, "unit": currency_code(r.unit) or "KRW"}
+            cur = currency_code(r.unit)   # 통화어 없으면 unit 생략 — KRW 날조 금지
+            return {"value": r.value, "unit": cur} if cur else {"value": r.value}
         if etype == "UNIT_QUANTITY":
             return {"value": r.value, "unit": r.unit}
         return {"value": r.value}
@@ -157,6 +168,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="합성 골든셋 빌더 (Track A)")
     ap.add_argument("--script", required=True, help="마크업 스크립트 JSON 경로")
     ap.add_argument("--out", required=True, help="골든 JSON 출력 경로")
+    ap.add_argument("--manifest-out", help="(선택) TTS 렌더 매니페스트 JSON 출력 경로")
     a = ap.parse_args(argv)
 
     try:
@@ -166,12 +178,19 @@ def main(argv=None) -> int:
 
     script = json.loads(Path(a.script).read_text(encoding="utf-8-sig"))
     golden = build_golden(script)
-    validate_golden(golden_from_data(golden))  # 산출 즉시 게이트 검증
+    validate_golden(golden_from_data(golden))  # 오프셋 불변식 검증
     Path(a.out).write_text(
         json.dumps(golden, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     n = sum(len(s["critical_entities"]) for s in golden["segments"])
     print(f"wrote {a.out} — 세그먼트 {len(golden['segments'])}개, 치명토큰 {n}개")
+
+    if a.manifest_out:
+        manifest = render_manifest(script)
+        Path(a.manifest_out).write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"wrote {a.manifest_out} — TTS 매니페스트 발화 {len(manifest)}개")
     return 0
 
 

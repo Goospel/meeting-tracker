@@ -159,11 +159,12 @@
         {
           "entity_id": "s7e1",
           "type": "TIME",
-          "char_start": 10,
+          "char_start": 7,
           "char_end": 13,
-          "surface": "세 시",
+          "surface": "오후 세 시",
           "canonical": {
-            "hour": 3
+            "hour": 3,
+            "meridiem": "pm"
           },
           "criticality": "high"
         }

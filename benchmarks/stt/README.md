@@ -43,7 +43,7 @@ stt_bench/
   report.py          회의 단위 병합 + 마크다운 리포트 + CLI (세그먼트 조인 키 가드)
   synth.py           합성 골든 빌더 — 마크업 스크립트 하나 → 골든 JSON + TTS 매니페스트 (Track A)
 fixtures/            데모 골든셋·모의 hypothesis + 합성 스크립트(synth/) — 전부 합성, 실측 아님
-tests/               121개 테스트 (방법론 스펙 + 적대적 리뷰 회귀 F1~F13·R1~R15 + 합성 빌더)
+tests/               129개 테스트 (방법론 스펙 + 적대적 리뷰 회귀 F1~F13·R1~R15 + 합성 빌더·리뷰 회귀)
 ```
 
 > 🔍 구현 후 다중 에이전트 적대적 코드리뷰를 **2라운드** 돌려, 한국어 파서·스팬
@@ -67,10 +67,11 @@ python -m venv .venv
   --golden fixtures/golden/budget_meeting.json \
   --hyp    fixtures/hyp/budget_meeting.aws_mock.json
 
-# 합성 골든 재생성 (Track A — 스크립트 하나에서 골든 파생, 게이트 검증 포함)
+# 합성 골든 + TTS 매니페스트 재생성 (Track A — 스크립트 하나에서 둘 다 파생)
 .venv/Scripts/python -m stt_bench.synth \
-  --script fixtures/synth/budget_reversal.script.json \
-  --out    fixtures/golden/synth_budget_reversal.json
+  --script       fixtures/synth/budget_reversal.script.json \
+  --out          fixtures/golden/synth_budget_reversal.json \
+  --manifest-out fixtures/synth/budget_reversal.manifest.json
 ```
 
 ## 스코프 경계 — 다음 PR(v2)로 미룬 것
