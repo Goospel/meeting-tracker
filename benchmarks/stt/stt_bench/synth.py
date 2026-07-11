@@ -67,10 +67,11 @@ def _parse_fields(extra: list[str], etype: str) -> dict:
             raise ValueError(f"contradiction_key 중복 지정: {key!r} vs {v!r}")
         key = v
 
-    for i, f in enumerate(extra):
+    first = True                                        # '첫 비어있지 않은 필드' 추적 (빈 필드는 건너뜀)
+    for f in extra:
         f = f.strip()
         if not f:
-            continue                                    # 빈 필드(후행 파이프 등) 무시
+            continue                                    # 빈 필드(선행·후행 파이프 등) 무시
         if f == "manual":
             manual = True
         elif "=" in f:
@@ -81,18 +82,25 @@ def _parse_fields(extra: list[str], etype: str) -> dict:
             elif name == "aliases":
                 if etype != "PROPER_NOUN":
                     raise ValueError(f"aliases는 PROPER_NOUN에서만 유효 (유형 {etype!r})")
+                if aliases:                             # 빈값은 아래서 걸러 () = 미지정 → 중복 aliases= (무성 last-wins 차단)
+                    raise ValueError(f"aliases 중복 지정: {list(aliases)!r} vs {val!r}")
                 parsed = tuple(a.strip() for a in val.split(",") if a.strip())
                 if not parsed:                          # aliases= 인데 빈 값 → 별칭 통째 무력화 (무성 no-op 차단)
                     raise ValueError("aliases= 값이 비었습니다 (콤마로 구분된 별칭 필요)")
                 aliases = parsed
             elif name == "canonical":
+                if not val:                             # canonical= 빈 값 → surface로 무성 fallback 차단 (key=/aliases= 와 대칭)
+                    raise ValueError("canonical= 값이 비었습니다 (manual 라벨 필요, 생략 시 surface)")
+                if manual_canonical is not None:        # 중복 canonical= (무성 last-wins 차단)
+                    raise ValueError(f"canonical 중복 지정: {manual_canonical!r} vs {val!r}")
                 manual_canonical = val
             else:
                 raise ValueError(f"알 수 없는 마크업 필드: {name!r}")
-        elif i == 0:
-            _set_key(f)                                 # 하위호환 무명 key (첫 자리만)
+        elif first:
+            _set_key(f)                                 # 하위호환 무명 key (첫 비어있지 않은 필드)
         else:
             raise ValueError(f"알 수 없는 마크업 필드: {f!r}")
+        first = False
 
     if manual_canonical is not None and not manual:
         raise ValueError("canonical= 는 manual 엔티티에서만 유효")

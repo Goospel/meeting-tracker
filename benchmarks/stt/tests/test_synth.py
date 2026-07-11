@@ -330,3 +330,32 @@ def test_empty_surface_markup_raises():
     # [8]: 빈 surface([[|TYPE]])는 무의미 토큰 — 게이트 구멍 대신 빌더가 즉시 에러.
     with pytest.raises(ValueError):
         build_golden(_turn("공백 [[|PROPER_NOUN]] 토큰"))
+
+
+def test_duplicate_aliases_field_raises():
+    # [#1]: aliases= 를 두 번 주면 뒤 값이 앞 별칭 집합을 조용히 덮어써(last-wins) 소실 →
+    # 무성 데이터 손실 대신 에러(_set_key의 중복 가드와 대칭).
+    with pytest.raises(ValueError):
+        build_golden(_turn("신제품 [[루미|PROPER_NOUN|aliases=Lumi|aliases=루미에]] 출시"))
+
+
+def test_leading_empty_field_before_bare_key_ok():
+    # [#3]: 무명 key 앞에 빈 필드(이중 파이프·공백 등)가 있어도 하위호환 contradiction_key로
+    # 인정 — raw enumerate 인덱스가 아니라 '첫 비어있지 않은 필드'로 판정(오해성 'unknown
+    # field' 거부 제거). 후행 빈 필드가 무시되는 것과 대칭.
+    e = _ent0("예산 [[3천만원|AMOUNT| |budget_cap]] 배정")
+    assert e["contradiction_key"] == "budget_cap"
+
+
+def test_duplicate_canonical_field_raises():
+    # [#4]: canonical= 중복 지정을 last-wins로 삼키면 앞 라벨이 조용히 소실 → 에러
+    # (_set_key·aliases 중복 가드와 대칭).
+    with pytest.raises(ValueError):
+        build_golden(_turn("점심 [[정오|TIME|manual|canonical=정오|canonical=오후]]에"))
+
+
+def test_empty_canonical_value_raises():
+    # [#5]: canonical= 값이 비면 surface로 무성 fallback → 빈 key=/aliases= 가 에러인 것과
+    # 대칭으로 에러(생략은 여전히 허용, 아래 test_manual_without_explicit_canonical...).
+    with pytest.raises(ValueError):
+        build_golden(_turn("점심 [[정오|TIME|manual|canonical=]]에"))

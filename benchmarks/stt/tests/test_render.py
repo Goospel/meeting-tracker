@@ -192,3 +192,18 @@ def test_cli_empty_manifest_returns_clean_error(tmp_path):
     man_path.write_text("[]", encoding="utf-8")
     rc = main(["--manifest", str(man_path), "--out", str(tmp_path / "clip.wav")])
     assert rc == 2
+
+
+def test_cli_missing_manifest_returns_clean_error(tmp_path):
+    # [#2]: 존재하지 않는 --manifest 경로(사용자 CLI 입력)는 FileNotFoundError 트레이스백이
+    # 아니라 클린 에러(return 2) — 읽기·파싱을 try 안으로.
+    rc = main(["--manifest", str(tmp_path / "nope.json"), "--out", str(tmp_path / "clip.wav")])
+    assert rc == 2
+
+
+def test_cli_malformed_json_manifest_returns_clean_error(tmp_path):
+    # [#2]: 깨진 JSON 매니페스트도 트레이스백 대신 클린 에러(JSONDecodeError ⊂ ValueError).
+    man_path = tmp_path / "m.json"
+    man_path.write_text("{ not valid json", encoding="utf-8")
+    rc = main(["--manifest", str(man_path), "--out", str(tmp_path / "clip.wav")])
+    assert rc == 2

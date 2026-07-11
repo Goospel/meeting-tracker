@@ -190,12 +190,14 @@ def main(argv=None) -> int:
         except (AttributeError, ValueError):
             pass
 
-    manifest = json.loads(Path(a.manifest).read_text(encoding="utf-8-sig"))
     try:
-        # azure/google/naver 거부, 빈/비-list 매니페스트, gap 음수 등을 클린 에러로(트레이스백 대신).
+        # 매니페스트 읽기·파싱 실패(없는 경로 FileNotFoundError ⊂ OSError, 깨진 JSON
+        # JSONDecodeError ⊂ ValueError), azure/google/naver 거부, 빈/비-list 매니페스트,
+        # gap 음수 등을 전부 클린 에러로(트레이스백 대신). 경로는 사용자 CLI 입력이라 defer 대상 아님.
+        manifest = json.loads(Path(a.manifest).read_text(encoding="utf-8-sig"))
         port = get_port(a.renderer)
         clip, report = render_clip(manifest, port, gap_sec=a.gap_sec)
-    except (TtsCredentialError, ValueError) as exc:
+    except (TtsCredentialError, ValueError, OSError) as exc:
         print(f"렌더 불가: {exc}", file=sys.stderr)
         return 2
 
