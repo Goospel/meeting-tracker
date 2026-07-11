@@ -8,11 +8,18 @@
 
 마크업 문법:
     [[surface|TYPE]]                     예) [[세 편|UNIT_QUANTITY]]
-    [[surface|TYPE|contradiction_key]]   예) [[3천만원|AMOUNT|budget_cap]]
+    [[surface|TYPE|contradiction_key]]   예) [[3천만원|AMOUNT|budget_cap]]  (무명 3번 필드 = key, 하위호환)
+    [[surface|TYPE|name=value|...]]      명명 필드:
+        key=<축>            같은 의미축 (역할스왑용). 무명 3번 필드와 동치.
+        aliases=<a,b,c>     PROPER_NOUN 축약 허용목록 (인스타=인스타그램). 채점기 allowed가 소비.
+        manual              파서가 못 다루는 정당 표기('정오' 등) opt-out — canonical을 파서로
+                            파생하지 않고, 채점기는 needs_review(ambiguous)로 분류.
+        canonical=<라벨>    manual 엔티티의 문서용 canonical 라벨(생략 시 surface). manual 전용.
 
-canonical은 저자가 쓰지 않고 parse_number/parse_date/parse_time으로 파생한다
-— surface가 곧 정답 텍스트이므로 '값 등가 정답'은 그 파싱 결과여야 한다. 파싱
-불가하거나 오탈·불균형 마크업은 즉시 에러(무성 실패 차단).
+canonical은 (manual이 아니면) 저자가 쓰지 않고 parse_number/parse_date/parse_time으로
+파생한다 — surface가 곧 정답 텍스트이므로 '값 등가 정답'은 그 파싱 결과여야 한다. 파싱
+불가하거나 오탈·불균형 마크업, 무의미 필드 조합(aliases on 비-PROPER_NOUN, canonical=
+without manual, 미지 필드)은 즉시 에러(무성 실패 차단).
 
 검증 주의: 오프셋 불변식(text[cs:ce]==surface)은 자동 계산이라 '구성상' 성립하고
 validate_golden이 이를 실제로 검사한다. 반면 canonical은 파서 파생이라
@@ -41,6 +48,68 @@ _MARKUP = re.compile(r"\[\[(.+?)\]\]")
 _NUMERIC_VALUE = {"AMOUNT", "NUMBER", "PERCENT", "UNIT_QUANTITY"}
 
 
+def _parse_fields(extra: list[str], etype: str) -> dict:
+    """마크업의 TYPE 뒤 필드들(parts[2:])을 파싱 → {key, aliases, manual, manual_canonical}.
+
+    무명 3번 필드(첫 자리)는 하위호환으로 contradiction_key. 그 밖은 name=value 명명 필드
+    또는 무값 플래그(manual). 무의미 조합·미지 필드는 즉시 에러(무성 no-op 차단).
+    """
+    key = None
+    aliases: tuple = ()
+    manual = False
+    manual_canonical = None
+
+    def _set_key(v: str) -> None:
+        nonlocal key
+        if not v:
+            raise ValueError("contradiction_key(key=) 값이 비었습니다")
+        if key is not None:                             # 무명 key + key= 이중 지정 (무성 last-wins 차단)
+            raise ValueError(f"contradiction_key 중복 지정: {key!r} vs {v!r}")
+        key = v
+
+    first = True                                        # '첫 비어있지 않은 필드' 추적 (빈 필드는 건너뜀)
+    for f in extra:
+        f = f.strip()
+        if not f:
+            continue                                    # 빈 필드(선행·후행 파이프 등) 무시
+        if f == "manual":
+            manual = True
+        elif "=" in f:
+            name, _, val = f.partition("=")
+            name, val = name.strip(), val.strip()
+            if name == "key":
+                _set_key(val)
+            elif name == "aliases":
+                if etype != "PROPER_NOUN":
+                    raise ValueError(f"aliases는 PROPER_NOUN에서만 유효 (유형 {etype!r})")
+                if aliases:                             # 빈값은 아래서 걸러 () = 미지정 → 중복 aliases= (무성 last-wins 차단)
+                    raise ValueError(f"aliases 중복 지정: {list(aliases)!r} vs {val!r}")
+                parsed = tuple(a.strip() for a in val.split(",") if a.strip())
+                if not parsed:                          # aliases= 인데 빈 값 → 별칭 통째 무력화 (무성 no-op 차단)
+                    raise ValueError("aliases= 값이 비었습니다 (콤마로 구분된 별칭 필요)")
+                aliases = parsed
+            elif name == "canonical":
+                if not val:                             # canonical= 빈 값 → surface로 무성 fallback 차단 (key=/aliases= 와 대칭)
+                    raise ValueError("canonical= 값이 비었습니다 (manual 라벨 필요, 생략 시 surface)")
+                if manual_canonical is not None:        # 중복 canonical= (무성 last-wins 차단)
+                    raise ValueError(f"canonical 중복 지정: {manual_canonical!r} vs {val!r}")
+                manual_canonical = val
+            else:
+                raise ValueError(f"알 수 없는 마크업 필드: {name!r}")
+        elif first:
+            _set_key(f)                                 # 하위호환 무명 key (첫 비어있지 않은 필드)
+        else:
+            raise ValueError(f"알 수 없는 마크업 필드: {f!r}")
+        first = False
+
+    if manual_canonical is not None and not manual:
+        raise ValueError("canonical= 는 manual 엔티티에서만 유효")
+    if aliases and manual:                              # manual은 채점기가 ambiguous로 단락 → aliases는 죽은 값
+        raise ValueError("aliases는 manual 엔티티에서 무의미 (채점기가 needs_review로 단락)")
+    return {"key": key, "aliases": aliases, "manual": manual,
+            "manual_canonical": manual_canonical}
+
+
 def _strip_markup(raw: str) -> tuple[str, list[dict]]:
     """마크업 텍스트 → (마크업 제거·NFC 정규화한 clean 텍스트, 엔티티 스팬 목록).
 
@@ -53,15 +122,17 @@ def _strip_markup(raw: str) -> tuple[str, list[dict]]:
     for m in _MARKUP.finditer(raw):
         clean += raw[idx:m.start()]
         parts = m.group(1).split("|")
-        if len(parts) > 3:
-            raise ValueError(f"마크업 필드 과다 (surface|TYPE|key만 지원): {m.group(1)!r}")
+        if len(parts) < 2 or not parts[1].strip():
+            raise ValueError(f"마크업에 TYPE이 없습니다 (surface|TYPE): {m.group(1)!r}")
         surface = parts[0]
-        etype = parts[1].strip() if len(parts) > 1 else ""   # TYPE 앞뒤 공백 허용
-        key = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
+        if surface == "":                               # 빈 surface([[|TYPE]])는 무의미 토큰 — 게이트 구멍 차단
+            raise ValueError(f"빈 surface 마크업: {m.group(1)!r}")
+        etype = parts[1].strip()                        # TYPE 앞뒤 공백 허용
+        fields = _parse_fields(parts[2:], etype)
         cs = len(clean)
         clean += surface
-        spans.append({"surface": surface, "type": etype, "key": key,
-                      "char_start": cs, "char_end": len(clean)})
+        spans.append({"surface": surface, "type": etype,
+                      "char_start": cs, "char_end": len(clean), **fields})
         idx = m.end()
     clean += raw[idx:]
     # 오탈·불균형 마크업이 조용히 새는 것 차단 — 무성 실패는 이 빌더의 최악 실패모드.
@@ -110,17 +181,26 @@ def build_golden(script: dict) -> dict:
         text, spans = _strip_markup(turn["text"])
         ents = []
         for i, sp in enumerate(spans, start=1):
+            if sp["manual"]:
+                # 파서 미파생 — canonical은 저자 라벨(생략 시 surface). 채점기가 ambiguous 처리.
+                canonical = {"canonical": sp["manual_canonical"] or sp["surface"]}
+            else:
+                canonical = _derive_canonical(sp["type"], sp["surface"])
             e = {
                 "entity_id": f"{turn['segment_id']}e{i}",
                 "type": sp["type"],
                 "char_start": sp["char_start"],
                 "char_end": sp["char_end"],
                 "surface": sp["surface"],
-                "canonical": _derive_canonical(sp["type"], sp["surface"]),
+                "canonical": canonical,
                 "criticality": "high",
             }
             if sp["key"]:
                 e["contradiction_key"] = sp["key"]
+            if sp["aliases"]:
+                e["aliases"] = list(sp["aliases"])
+            if sp["manual"]:
+                e["flags"] = {"manual": True}
             ents.append(e)
         segments.append({
             "segment_id": turn["segment_id"],
@@ -171,10 +251,11 @@ def main(argv=None) -> int:
     ap.add_argument("--manifest-out", help="(선택) TTS 렌더 매니페스트 JSON 출력 경로")
     a = ap.parse_args(argv)
 
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")  # Windows cp949 콘솔 회피 (T-027)
-    except (AttributeError, ValueError):
-        pass
+    for stream in (sys.stdout, sys.stderr):       # Windows cp949 콘솔 회피 (T-027)
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
 
     script = json.loads(Path(a.script).read_text(encoding="utf-8-sig"))
     golden = build_golden(script)

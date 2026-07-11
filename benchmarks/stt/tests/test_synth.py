@@ -220,3 +220,142 @@ def test_cli_writes_golden_and_manifest(tmp_path):
     assert len(manifest) == len(json.loads(out.read_text(encoding="utf-8"))["segments"])
     assert all("[[" not in t["text"] and "|" not in t["text"] for t in manifest)
     assert manifest[0]["speaker"] == "p1"
+
+
+# ── 마크업 문법 확장: PROPER_NOUN aliases · flags.manual opt-out ───────────
+# (채점기·검증기는 이미 aliases/flags.manual을 소비 — synth 마크업 방출만 확장)
+
+def _ent0(text):
+    return build_golden(_turn(text))["segments"][0]["critical_entities"][0]
+
+
+def test_proper_noun_aliases_emitted_reach_scorer_model():
+    # aliases=는 축약 허용목록을 골든에 싣는다 → golden_from_data가 채점기 데이터 모델
+    # (CriticalEntity.aliases)로 그대로 전달, 검증 게이트 통과. (별칭 매칭 자체는 채점기 테스트 소관.)
+    g = build_golden(_turn("이번에 새로 나온 [[루미|PROPER_NOUN|aliases=루미에,Lumi]]"))
+    e = g["segments"][0]["critical_entities"][0]
+    assert set(e["aliases"]) == {"루미에", "Lumi"}
+    golden = golden_from_data(g)
+    ent = golden["segments"][0].critical_entities[0]
+    assert set(ent.aliases) == {"루미에", "Lumi"}
+    assert validate_golden(golden) is True
+
+
+def test_aliases_on_non_proper_noun_raises():
+    # aliases는 PROPER_NOUN 채점 경로에서만 소비됨 → 다른 타입엔 무성 사장 방지 위해 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("예산 [[3천만원|AMOUNT|aliases=삼천만]] 배정"))
+
+
+def test_manual_flag_opts_out_of_parser_and_is_ambiguous():
+    # parser가 못 다루는 정당 표기('정오')를 manual로 통과 — 검증 게이트 skip, 채점기 ambiguous.
+    g = build_golden(_turn("점심은 [[정오|TIME|manual|canonical=정오]]에 먹읍시다"))
+    e = g["segments"][0]["critical_entities"][0]
+    assert e["flags"] == {"manual": True}
+    assert e["canonical"]  # 비어있지 않음 (검증 게이트 요구)
+    assert validate_golden(golden_from_data(g)) is True  # manual이라 parse 게이트 면제
+    golden = golden_from_data(g)
+    hyp = {"clip_id": "x", "provider": "m",
+           "segments": {"s1": g["segments"][0]["text"]}}
+    m = score_meeting(golden, hyp)
+    assert m["per_type"]["TIME"].ambiguous == 1
+
+
+def test_manual_without_explicit_canonical_defaults_to_surface():
+    # manual인데 canonical= 생략 → surface를 canonical로. (비어있지 않아 게이트 통과)
+    e = _ent0("점심은 [[정오|TIME|manual]]에")
+    assert e["flags"] == {"manual": True}
+    assert e["canonical"] == {"canonical": "정오"}
+
+
+def test_canonical_without_manual_raises():
+    # canonical= 는 manual 전용 — parser 파생 엔티티에 주면 게이트와 충돌하므로 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("예산 [[3천만원|AMOUNT|canonical=30000000]] 배정"))
+
+
+def test_unknown_named_field_raises():
+    # 알 수 없는 명명 필드는 무성 폐기 대신 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("신제품 [[루미|PROPER_NOUN|foo=bar]] 출시"))
+
+
+def test_key_and_aliases_coexist():
+    # contradiction_key(명명형)와 aliases 공존.
+    e = _ent0("신제품 [[루미|PROPER_NOUN|key=brand|aliases=Lumi]] 출시")
+    assert e["contradiction_key"] == "brand"
+    assert set(e["aliases"]) == {"Lumi"}
+
+
+def test_bare_third_field_still_means_contradiction_key():
+    # 하위호환: surface|TYPE|key 의 맨 앞 무명 필드는 여전히 contradiction_key.
+    e = _ent0("예산 [[3천만원|AMOUNT|budget_cap]] 배정")
+    assert e["contradiction_key"] == "budget_cap"
+    assert "aliases" not in e and "flags" not in e
+
+
+# ── 리뷰 회귀 (적대적 리뷰 확정 결함 — 무성 no-op 차단) ────────────────────
+
+def test_empty_aliases_value_raises():
+    # [2]: aliases= 를 명시했는데 값이 비면 별칭 기능이 통째로 무력화 → 무성 대신 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("신제품 [[루미|PROPER_NOUN|aliases=]] 출시"))
+
+
+def test_comma_only_aliases_raises():
+    # [2]: 콤마만 남은 값도 0개 별칭 → 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("신제품 [[루미|PROPER_NOUN|aliases=,]] 출시"))
+
+
+def test_empty_key_value_raises():
+    # [2]: key= 값이 비면 contradiction_key가 조용히 사라짐 → 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("예산 [[3천만원|AMOUNT|key=]] 배정"))
+
+
+def test_aliases_with_manual_raises():
+    # [4]: manual 엔티티는 채점기가 ambiguous로 단락 → aliases는 절대 소비 안 됨(죽은 별칭) → 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("신제품 [[루미|PROPER_NOUN|manual|aliases=Lumi]] 출시"))
+
+
+def test_duplicate_key_bare_and_named_raises():
+    # [10/12]: 무명(첫 자리) key와 명명 key= 이중 지정을 last-wins로 삼키지 말고 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("예산 [[3천만원|AMOUNT|budget_cap|key=other]] 배정"))
+
+
+def test_empty_surface_markup_raises():
+    # [8]: 빈 surface([[|TYPE]])는 무의미 토큰 — 게이트 구멍 대신 빌더가 즉시 에러.
+    with pytest.raises(ValueError):
+        build_golden(_turn("공백 [[|PROPER_NOUN]] 토큰"))
+
+
+def test_duplicate_aliases_field_raises():
+    # [#1]: aliases= 를 두 번 주면 뒤 값이 앞 별칭 집합을 조용히 덮어써(last-wins) 소실 →
+    # 무성 데이터 손실 대신 에러(_set_key의 중복 가드와 대칭).
+    with pytest.raises(ValueError):
+        build_golden(_turn("신제품 [[루미|PROPER_NOUN|aliases=Lumi|aliases=루미에]] 출시"))
+
+
+def test_leading_empty_field_before_bare_key_ok():
+    # [#3]: 무명 key 앞에 빈 필드(이중 파이프·공백 등)가 있어도 하위호환 contradiction_key로
+    # 인정 — raw enumerate 인덱스가 아니라 '첫 비어있지 않은 필드'로 판정(오해성 'unknown
+    # field' 거부 제거). 후행 빈 필드가 무시되는 것과 대칭.
+    e = _ent0("예산 [[3천만원|AMOUNT| |budget_cap]] 배정")
+    assert e["contradiction_key"] == "budget_cap"
+
+
+def test_duplicate_canonical_field_raises():
+    # [#4]: canonical= 중복 지정을 last-wins로 삼키면 앞 라벨이 조용히 소실 → 에러
+    # (_set_key·aliases 중복 가드와 대칭).
+    with pytest.raises(ValueError):
+        build_golden(_turn("점심 [[정오|TIME|manual|canonical=정오|canonical=오후]]에"))
+
+
+def test_empty_canonical_value_raises():
+    # [#5]: canonical= 값이 비면 surface로 무성 fallback → 빈 key=/aliases= 가 에러인 것과
+    # 대칭으로 에러(생략은 여전히 허용, 아래 test_manual_without_explicit_canonical...).
+    with pytest.raises(ValueError):
+        build_golden(_turn("점심 [[정오|TIME|manual|canonical=]]에"))

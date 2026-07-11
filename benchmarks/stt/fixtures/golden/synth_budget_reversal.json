@@ -101,7 +101,11 @@
           "canonical": {
             "canonical": "루미"
           },
-          "criticality": "high"
+          "criticality": "high",
+          "aliases": [
+            "Lumi",
+            "루미에"
+          ]
         }
       ]
     },
