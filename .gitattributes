@@ -1,0 +1,22 @@
+# 줄바꿈 정규화 — 2대 기계(Windows 데스크톱 / Mac·Linux 랩탑) phantom diff 방지.
+# 저장소 안에서는 항상 LF, 체크아웃 시 OS에 맞게(작업트리) 조정.
+
+# 텍스트 파일: 자동 감지 후 저장소는 LF 로 통일
+* text=auto eol=lf
+
+# Windows 전용 스크립트만 CRLF 유지
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 바이너리: 변환 금지
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.woff  binary
+*.woff2 binary
