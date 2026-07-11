@@ -42,8 +42,9 @@ stt_bench/
   golden.py          골든셋 로더 + 검증 게이트(NFC·오프셋·DATE/TIME 과소명세 차단)
   report.py          회의 단위 병합 + 마크다운 리포트 + CLI (세그먼트 조인 키 가드)
   synth.py           합성 골든 빌더 — 마크업 스크립트 하나 → 골든 JSON + TTS 매니페스트 (Track A)
+  render.py          렌더 레이어 — TTS 매니페스트 → WAV 타임라인 (TtsPort + stdlib 톤 렌더러 + 크레덴셜 확장점)
 fixtures/            데모 골든셋·모의 hypothesis + 합성 스크립트(synth/) — 전부 합성, 실측 아님
-tests/               129개 테스트 (방법론 스펙 + 적대적 리뷰 회귀 F1~F13·R1~R15 + 합성 빌더·리뷰 회귀)
+tests/               148개 테스트 (방법론 스펙 + 적대적 리뷰 회귀 F1~F13·R1~R15 + 합성 빌더·마크업 확장·렌더)
 ```
 
 > 🔍 구현 후 다중 에이전트 적대적 코드리뷰를 **2라운드** 돌려, 한국어 파서·스팬
@@ -72,7 +73,33 @@ python -m venv .venv
   --script       fixtures/synth/budget_reversal.script.json \
   --out          fixtures/golden/synth_budget_reversal.json \
   --manifest-out fixtures/synth/budget_reversal.manifest.json
+
+# TTS 매니페스트 → 오디오 타임라인 렌더 (크레덴셜 없이 톤 렌더러로 파이프라인 검증)
+.venv/Scripts/python -m stt_bench.render \
+  --manifest   fixtures/synth/budget_reversal.manifest.json \
+  --out        fixtures/audio/synth_budget_reversal.wav \
+  --report-out fixtures/synth/budget_reversal.render.json
+# 실제 비-네이버 뉴럴 렌더는 크레덴셜 확보 시: --renderer azure|google (SDK는 선택 extra)
 ```
+
+### 합성 스크립트 마크업 문법 (synth.py)
+
+회의를 인라인 마크업으로 **한 번만** 쓰면 골든과 TTS 대본이 같은 소스에서 파생돼
+어긋나지 않는다(무드리프트). canonical은 (manual이 아니면) 파서가 산출한다.
+
+```
+[[surface|TYPE]]                     예) [[세 편|UNIT_QUANTITY]]
+[[surface|TYPE|contradiction_key]]   예) [[3천만원|AMOUNT|budget_cap]]   (무명 3번 필드 = key, 하위호환)
+[[surface|TYPE|name=value|...]]      명명 필드:
+    key=<축>           같은 의미축(역할스왑용). 무명 3번 필드와 동치.
+    aliases=<a,b,c>    PROPER_NOUN 축약 허용목록. 채점기가 hit으로 인정.
+    manual             파서가 못 다루는 정당 표기('정오' 등) opt-out — canonical 파서 미파생,
+                       채점기는 needs_review(ambiguous) 처리.
+    canonical=<라벨>   manual 엔티티의 문서용 라벨(생략 시 surface). manual 전용.
+```
+
+오탈·불균형 마크업, 파싱 불가 surface, 무의미 조합(aliases on 비-PROPER_NOUN,
+canonical= without manual, 미지 필드)은 **즉시 에러**(무성 실패 차단).
 
 ## 스코프 경계 — 다음 PR(v2)로 미룬 것
 

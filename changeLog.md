@@ -12,7 +12,14 @@
 
 ## 2026-07-12
 
-### feat · Track A 합성 골든셋 빌더 — 스크립트 하나 → 골든 + TTS 매니페스트 (이 PR)
+### feat · Track A 렌더 레이어 + 마크업 문법 확장 (이 PR)
+- **렌더 레이어** `stt_bench/render.py` 신설: `TtsPort` 프로토콜 + 크레덴셜-불요 `ToneTtsPort`(stdlib `wave`만, 화자별 사인 톤) + `render_clip`(매니페스트→WAV 타임라인 + 실제 렌더 시각 리포트) + `get_port` 팩토리. **런타임 의존성 0 불변식**이라 Azure/Google 뉴럴 TTS SDK는 코어에 싣지 않고 `get_port`가 `TtsCredentialError`로 막는 **확장점**만 둔다(크레덴셜 오면 포트만 스왑). `naver`는 벤더 음향 prior 편향으로 애초에 거부(벤치에 클로바 포함).
+- **마크업 문법 확장** `synth.py`: `_parse_fields` 신설로 PROPER_NOUN `aliases=`(축약 허용목록)·`manual`(파서 미파생 canonical opt-out→채점기 ambiguous)·`canonical=`(manual 라벨) 지원. 채점기·검증기(`score.py`/`golden.py`)는 이미 aliases/flags.manual을 소비 → **마크업 방출만** 확장. 하위호환(`surface|TYPE|key`) 유지. 대표 fixture 루미에 `aliases=Lumi,루미에` 실어 실증.
+- **적대적 코드리뷰 반영**(36에이전트 find→verify→sweep, 27후보 25 confirmed): 무성 실패·크래시 **11종 수정** — ① amplitude>1 int16 포화 OverflowError ② 빈 `aliases=`/`key=` 무성 무력화 ③ `aliases`+`manual` 죽은 별칭 ④ 무명 key + `key=` 이중 지정 ⑤ `--report-out` 부모 미생성 부분산출 크래시 ⑥ `render_clip` ValueError 미포착 ⑦ `gap_sec` 음수 모호 에러 ⑧ 커스텀 포트 `sample_rate=0` ZeroDivision ⑨ `synth.main` stderr utf-8 누락(T-027) ⑩ 빈 surface 게이트 통과 ⑪ 비-list 매니페스트. 보류 4종은 설계상 정당/사전존재(plan 기록).
+- **TDD**: 회귀 포함 `test_render.py`(18) + `test_synth.py` 확장 → 전체 **161 통과**(기존 148 무회귀). 렌더 산출물(WAV·매니페스트·렌더 리포트)은 파생물이라 gitignore.
+- **왜**: Track A의 "녹음 없이 오디오까지" 파이프라인을 크레덴셜 없이 실검증 완료. 이제 Track A에서 남은 건 실제 비-네이버 뉴럴 렌더뿐(크레덴셜 대기).
+
+### feat · Track A 합성 골든셋 빌더 — 스크립트 하나 → 골든 + TTS 매니페스트 ([PR #7](https://github.com/Goospel/meeting-tracker/pull/7))
 - `stt_bench/synth.py` 신설: 인라인 마크업 회의 스크립트(`[[surface|TYPE|key]]`)에서 **CTER 골든 JSON**(문자 오프셋·canonical을 파서로 자동 산출)과 **TTS 렌더 매니페스트**(마크업 제거)를 **같은 소스에서** 파생. → 골든↔렌더 오디오 **무드리프트**, 수동 오프셋 오류 원천 차단.
 - 검증 정직화(리뷰 반영): 오프셋 불변식(`text[cs:ce]==surface`)은 자동 계산이라 구성상 성립하고 `validate_golden`이 **실검사**한다. 반면 canonical은 파서 파생이라 게이트의 canonical 대조는 자명하게 통과할 뿐(파서 오파싱은 **회귀 테스트**가 방어) — "게이트 통과=검증"으로 읽히지 않도록 문서·docstring 수정.
 - **max-effort 코드리뷰 반영**(다중에이전트 10앵글→검증→스윕): ① 오탈·불균형 마크업 즉시 에러(무성 실패 차단) ② AMOUNT 통화 `or "KRW"` 날조 제거(파서 그대로) ③ fixture TIME 토큰 `[[오후 세 시]]` 재태깅(meridiem 소실→오전/오후 반전 미채점 수정) ④ 마크업 필드 strip·3파트 초과 에러 ⑤ 문서 정직화 ⑥ CLI `--manifest-out`로 매니페스트도 산출. 회귀 8종 추가. 보류: PROPER_NOUN aliases·flags.manual 마크업 슬롯(커버리지 공백).
