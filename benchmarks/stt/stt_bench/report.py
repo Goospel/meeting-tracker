@@ -25,14 +25,23 @@ def score_meeting(golden: dict, hyp: dict) -> dict:
     fcs, mts, seg_cer = [], [], {}
     hyp_segs = hyp["segments"]
 
-    # 조인 키 가드 (F6): id가 하나도 안 맞으면 '전부 삭제'로 조용히 오독하지 않게 즉시 실패.
+    # clip_id 대조 (R13): 다른 회의의 hyp를 넘기면 즉시 실패.
+    if golden.get("clip_id") and hyp.get("clip_id") and golden["clip_id"] != hyp["clip_id"]:
+        raise ValueError(f"clip_id 불일치: golden {golden['clip_id']!r} vs hyp {hyp['clip_id']!r}")
+
     golden_ids = [seg.segment_id for seg in golden["segments"]]
-    if golden_ids and not any(sid in hyp_segs for sid in golden_ids):
+    golden_id_set = set(golden_ids)
+    total_failure = len(hyp_segs) == 0   # 빈 hyp = 완전 실패 (R14)
+
+    # 조인 키 가드 (F6/R14): hyp에 세그먼트가 '있는데' 0개 일치일 때만 실패.
+    # 빈 hyp는 정당한 완전 실패이므로 전부 삭제로 채점한다(크래시 금지).
+    if hyp_segs and not any(sid in hyp_segs for sid in golden_ids):
         raise ValueError(
             f"hypothesis 세그먼트 id가 골든과 하나도 안 맞습니다 "
             f"(골든 {golden_ids} vs hyp {list(hyp_segs)}). 조인 키를 확인하세요."
         )
     uncovered = [sid for sid in golden_ids if sid not in hyp_segs]
+    extra = [sid for sid in hyp_segs if sid not in golden_id_set]   # 환각 세그먼트 (R13)
 
     for seg in golden["segments"]:
         htext = hyp_segs.get(seg.segment_id, "")
@@ -54,6 +63,8 @@ def score_meeting(golden: dict, hyp: dict) -> dict:
         "missed_token_candidates": mts,
         "per_segment_cer": seg_cer,
         "uncovered_segments": uncovered,
+        "extra_segments": extra,
+        "total_failure": total_failure,
     }
 
 
@@ -63,18 +74,29 @@ def render_report(golden: dict, hyp: dict, merged: dict) -> str:
     L.append("")
     L.append(f"- provider: **{hyp['provider']}**")
     L.append("- ⚠️ **데모/모의 데이터** — 실제 CLOVA/AWS API 호출이 아닙니다(합성 hypothesis). 실측 결과 아님.")
+    if merged.get("total_failure"):
+        L.append("- 🛑 **완전 실패** — hypothesis에 세그먼트가 하나도 없음. 전부 삭제로 채점(STT 완전 미출력).")
     if merged.get("uncovered_segments"):
         L.append(f"- ⚠️ hypothesis에 없는 골든 세그먼트 {merged['uncovered_segments']} — 전부 삭제로 채점됨(조인 키 확인).")
+    if merged.get("extra_segments"):
+        L.append(f"- ⚠️ **환각 세그먼트** {merged['extra_segments']} — 골든에 없는데 hyp에만 존재(모순감지 최고 위험군).")
     L.append("")
     L.append("## 엔티티 유형별 — CTER(치명 토큰 오류율)이 1순위 KPI")
     L.append("")
-    L.append("| 유형 | n | hit | sub(치환) | del(삭제) | CTER | sub_rate | del_rate |")
-    L.append("|---|--:|--:|--:|--:|--:|--:|--:|")
+    L.append("| 유형 | n | hit | sub(치환) | del(삭제) | ambig | CTER | needs_review | sub_rate | del_rate |")
+    L.append("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+    total_ambig = 0
     for t, a in sorted(merged["per_type"].items()):
+        total_ambig += a.ambiguous
+        # 불변식: hit+sub+del+ambig == n
+        assert a.hit + a.sub + a.deleted + a.ambiguous == a.n, f"{t} 집계 불변식 위반"
         L.append(
-            f"| {t} | {a.n} | {a.hit} | {a.sub} | {a.deleted} | "
-            f"{a.cter:.2f} | {a.sub_rate:.2f} | {a.del_rate:.2f} |"
+            f"| {t} | {a.n} | {a.hit} | {a.sub} | {a.deleted} | {a.ambiguous} | "
+            f"{a.cter:.2f} | {a.needs_review_rate:.2f} | {a.sub_rate:.2f} | {a.del_rate:.2f} |"
         )
+    if total_ambig:
+        L.append("")
+        L.append(f"> ⚠️ **needs_review {total_ambig}건** — 범위 붕괴·파서 밖 표기 등 판정 보류. CTER엔 미포함이나 무시 금지.")
     L.append("")
 
     fcs = merged["false_contradiction_candidates"]

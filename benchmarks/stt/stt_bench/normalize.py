@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import unicodedata
 
+# norm CER에서 보존할 의미 있는 기호 (문장부호 category라도 벗기지 않음).
+_KEEP_SYMBOLS = set("%‰")
+
 
 def to_nfc(s: str) -> str:
     """유니코드 NFC(완성형)로 정규화."""
@@ -42,7 +45,9 @@ def normalize_text(s: str) -> str:
     지표(CTER)의 몫이다(자유 텍스트 숫자 경계 탐지는 취약하고, 골든 오프셋으로
     앵커된 엔티티 채점이 훨씬 견고하므로).
     """
+    # 문장부호는 제거하되 의미 있는 기호(%, ‰ 등)는 보존한다 — '%'는 category Po라
+    # 무조건 벗기면 퍼센트 소실을 norm CER이 '오류 0'으로 흡수한다(S4).
     s = to_nfc(s).lower()
-    s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("P"))
+    s = "".join(ch for ch in s if ch in _KEEP_SYMBOLS or not unicodedata.category(ch).startswith("P"))
     # split()은 모든 공백 런을 하나로 접고 양끝을 제거 → N2(공백 유지, N3 아님).
     return " ".join(s.split())
