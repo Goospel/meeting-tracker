@@ -44,6 +44,21 @@ pnpm-debug.log*
 coverage/
 
 # ─────────────────────────────────────────────
+#  Python (benchmarks/stt — STT 벤치마크 검증 하네스)
+# ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# 실제 오디오·raw STT 응답은 라이선스·용량·비밀 때문에 커밋 금지 (주석 JSON만 커밋)
+benchmarks/stt/fixtures/audio/
+benchmarks/stt/fixtures/raw/
+
+# ─────────────────────────────────────────────
 #  Terraform (IaC)  — .terraform.lock.hcl 은 커밋함
 # ─────────────────────────────────────────────
 .terraform/

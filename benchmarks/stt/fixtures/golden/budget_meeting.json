@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0-nfc",
+  "clip_id": "budget_meeting_demo",
+  "audio": {
+    "uri": "fixtures/audio/budget_meeting_demo.wav",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "duration_sec": 42.0,
+    "source_type": "tts_synthetic",
+    "note": "데모 전용 합성 데이터 — 채점 금지. 실제 벤치마크 소싱은 자가녹음/AI-Hub."
+  },
+  "speakers": [
+    { "id": "p1", "role": "PM" },
+    { "id": "p2", "role": "재무" }
+  ],
+  "segments": [
+    {
+      "segment_id": "s1",
+      "speaker": "p1",
+      "start_sec": 2.0,
+      "end_sec": 6.0,
+      "text": "예산은 3천만원까지 무리 없이 쓸 수 있어요",
+      "critical_entities": [
+        {
+          "entity_id": "e1",
+          "type": "AMOUNT",
+          "char_start": 4,
+          "char_end": 8,
+          "surface": "3천만원",
+          "canonical": { "value": 30000000, "unit": "KRW" },
+          "criticality": "high",
+          "contradiction_key": "budget_cap"
+        }
+      ]
+    },
+    {
+      "segment_id": "s2",
+      "speaker": "p1",
+      "start_sec": 30.0,
+      "end_sec": 34.0,
+      "text": "8월 셋째 주 출시로 확정합시다",
+      "critical_entities": [
+        {
+          "entity_id": "e2",
+          "type": "DATE",
+          "char_start": 0,
+          "char_end": 7,
+          "surface": "8월 셋째 주",
+          "canonical": { "month": 8, "week_of_month": 3 },
+          "criticality": "high",
+          "contradiction_key": "launch_date"
+        }
+      ]
+    }
+  ]
+}
