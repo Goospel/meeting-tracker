@@ -12,7 +12,15 @@
 
 ## 2026-07-12
 
-### docs · plan.md에 테스트 데이터 확보 전략(2트랙) 반영 (이 PR)
+### feat · Track A 합성 골든셋 빌더 — 스크립트 하나 → 골든 + TTS 매니페스트 (이 PR)
+- `stt_bench/synth.py` 신설: 인라인 마크업 회의 스크립트(`[[surface|TYPE|key]]`)에서 **CTER 골든 JSON**(문자 오프셋·canonical을 파서로 자동 산출)과 **TTS 렌더 매니페스트**(마크업 제거)를 **같은 소스에서** 파생. → 골든↔렌더 오디오 **무드리프트**, 수동 오프셋 오류 원천 차단.
+- 빌더 산출 골든은 `validate_golden` 게이트를 **구성상 통과**(canonical = parse(surface)라 R12 완전동치 자동 만족).
+- 첫 합성 골든 `fixtures/synth/budget_reversal.script.json` → `fixtures/golden/synth_budget_reversal.json`: 화자 3인·치명토큰 7종·**같은 화자 번복 2건**(예산 3천만→5천만, 출시 8월 셋째주→9월 초) 심음 — 2단계 감지 하네스 재사용 대비.
+- `golden.py`에 `golden_from_data()` 분리(파일읽기↔파싱), 커밋 골든이 스크립트에서 **재생성 가능**함을 회귀로 고정.
+- **TDD**: `tests/test_synth.py` 11테스트(Red→Green), 전체 **121 통과**(기존 110 무회귀). Windows cp949 콘솔 함정(T-027) CLI에 선제 적용.
+- **왜**: 녹음 없이 벤치마크를 돌리는 Track A의 토대. 스크립트=정답이라 CTER 채점기 자체를 크레덴셜 없이 end-to-end 검증. 남은 건 비-네이버 TTS 렌더뿐.
+
+### docs · plan.md에 테스트 데이터 확보 전략(2트랙) 반영 ([PR #6](https://github.com/Goospel/meeting-tracker/pull/6))
 - 다중에이전트 조사(5갈래 웹조사 → 종합) 결과를 [`plan.md`](plan.md) 1단계에 박음: **직접 녹음 없이** 벤치마크 데이터 확보 = **Track A 합성 골든셋(즉시)** + **Track B AI-Hub 464(병렬 신청)** + Track C 국회 속기록(후순위).
 - **왜**: 벤치마크 병목은 오디오가 아니라 '신뢰 레퍼런스 전사(골든)'다. 합성은 스크립트=정답이라 100% 통제, AI-Hub 464는 사람검수 전사·다자·화자라벨 제공.
 - 핵심 제약 명시: 벤치 대상에 클로바 포함 → 합성 렌더는 **반드시 비-네이버 TTS**(벤더 편향 회피). 오디오·전사는 라이선스상 로컬 전용, repo엔 CTER 수치 + 생성 스크립트만 공개.

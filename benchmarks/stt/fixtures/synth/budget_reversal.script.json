@@ -1,0 +1,60 @@
+{
+  "clip_id": "synth_budget_reversal",
+  "note": "합성 데이터 — 실제 STT/API 응답 아님. Track A: 이 스크립트 하나에서 CTER 골든과 TTS 렌더 매니페스트를 파생한다. 치명토큰을 밀집시키고 '같은 화자'의 번복 2건(예산 3천만→5천만, 출시 8월 셋째 주→9월 초)을 의도적으로 심었다.",
+  "speakers": [
+    { "id": "p1", "role": "PM" },
+    { "id": "p2", "role": "재무" },
+    { "id": "p3", "role": "마케팅" }
+  ],
+  "turns": [
+    {
+      "segment_id": "s1",
+      "speaker": "p1",
+      "start_sec": 2.0,
+      "end_sec": 7.0,
+      "text": "이번 분기 마케팅 예산은 [[3천만원|AMOUNT|budget_cap]]으로 잡읍시다"
+    },
+    {
+      "segment_id": "s2",
+      "speaker": "p2",
+      "start_sec": 7.5,
+      "end_sec": 12.0,
+      "text": "네 그러면 출시는 [[8월 셋째 주|DATE|launch_date]]로 확정하겠습니다"
+    },
+    {
+      "segment_id": "s3",
+      "speaker": "p3",
+      "start_sec": 12.5,
+      "end_sec": 17.0,
+      "text": "숏폼 콘텐츠는 [[세 편|UNIT_QUANTITY]] 제작하겠습니다"
+    },
+    {
+      "segment_id": "s4",
+      "speaker": "p3",
+      "start_sec": 17.5,
+      "end_sec": 22.0,
+      "text": "[[루미|PROPER_NOUN]] 브랜드 인지도부터 끌어올려야 합니다"
+    },
+    {
+      "segment_id": "s5",
+      "speaker": "p1",
+      "start_sec": 24.0,
+      "end_sec": 30.0,
+      "text": "다시 계산해 보니 예산은 [[5천만원|AMOUNT|budget_cap]]까지 필요할 것 같아요"
+    },
+    {
+      "segment_id": "s6",
+      "speaker": "p2",
+      "start_sec": 30.5,
+      "end_sec": 35.0,
+      "text": "그러면 출시를 [[9월 초|DATE|launch_date]]로 미루는 게 안전하겠습니다"
+    },
+    {
+      "segment_id": "s7",
+      "speaker": "p3",
+      "start_sec": 35.5,
+      "end_sec": 40.0,
+      "text": "다음 회의는 오후 [[세 시|TIME]]에 잡겠습니다"
+    }
+  ]
+}

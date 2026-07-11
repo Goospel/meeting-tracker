@@ -21,6 +21,12 @@ _NUMERIC = (EntityType.AMOUNT, EntityType.NUMBER, EntityType.PERCENT, EntityType
 
 def load_golden(path: str | Path) -> dict:
     data = json.loads(Path(path).read_text(encoding="utf-8-sig"))  # BOM 허용 (S1)
+    return golden_from_data(data)
+
+
+def golden_from_data(data: dict) -> dict:
+    """골든 raw dict → Segment/CriticalEntity 구조. 파일 경유 없이도(합성 빌더 등)
+    같은 파싱을 재사용하도록 load_golden에서 분리."""
     segments = []
     for s in data["segments"]:
         ents = [
