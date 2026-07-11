@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "title": "신제품 '루미' 출시 준비 회의",
+    "date": "2026-07-10",
+    "duration_sec": 2760,
+    "location": "3층 회의실 / 화상 혼합",
+    "participants": [
+      { "id": "p1", "name": "박팀장", "role": "마케팅 팀장", "color": "#2a78d6" },
+      { "id": "p2", "name": "김대리", "role": "제품 기획", "color": "#1baf7a" },
+      { "id": "p3", "name": "이주임", "role": "디자인", "color": "#eda100" },
+      { "id": "p4", "name": "정과장", "role": "영업", "color": "#008300" }
+    ]
+  },
+  "summary": {
+    "headline": "8월 출시를 목표로 잡았으나, 예산 상한과 출시일 관련 발언이 회의 중 뒤바뀌어 실제 확정된 사항이 흐려짐.",
+    "overview": "'루미' 출시 준비를 위한 첫 정렬 회의. 핵심 기능 범위, 예산, 출시 일정, 초기 마케팅 채널을 논의했다. 초반에는 8월 출시와 3천만원 예산으로 방향이 잡혔으나, 회의 후반부에 같은 참석자가 상반된 수치를 언급하면서 최종 결정이 모호해졌다. 박팀장이 초반에 제안한 사전예약 이벤트 안건은 이후 한 번도 다시 논의되지 않았다.",
+    "decisions": [
+      { "text": "핵심 기능은 3가지(음성메모, 자동요약, 공유링크)로 1차 출시 범위 확정", "status": "확정" },
+      { "text": "출시일 8월 vs 9월 — 회의 중 두 번 뒤바뀜, 최종 미확정", "status": "충돌" },
+      { "text": "초기 예산 3천만원 vs 2천만원 — 발언 상충, 재확인 필요", "status": "충돌" },
+      { "text": "메인 채널은 인스타그램 + 유튜브 숏폼으로 진행", "status": "확정" }
+    ],
+    "action_items": [
+      { "task": "출시일 확정을 위한 개발 일정 재확인", "owner": "김대리", "due": "2026-07-14", "done": false },
+      { "task": "예산 상한 최종 숫자 재무팀과 확정", "owner": "박팀장", "due": "2026-07-15", "done": false },
+      { "task": "숏폼 3편 기획안 초안", "owner": "이주임", "due": "2026-07-17", "done": false },
+      { "task": "주요 리셀러 대상 사전 소개 자료", "owner": "정과장", "due": "2026-07-18", "done": false }
+    ]
+  },
+  "speaker_stats": [
+    { "id": "p1", "talk_sec": 812, "turns": 11, "words": 1420, "questions": 5, "interruptions": 2 },
+    { "id": "p2", "talk_sec": 968, "turns": 12, "words": 1710, "questions": 3, "interruptions": 4 },
+    { "id": "p3", "talk_sec": 430, "turns": 7, "words": 640, "questions": 1, "interruptions": 0 },
+    { "id": "p4", "talk_sec": 550, "turns": 8, "words": 880, "questions": 4, "interruptions": 1 }
+  ],
+  "topics": [
+    { "id": "t1", "label": "핵심 기능 범위", "start_sec": 0, "end_sec": 620, "color": "#2a78d6", "summary": "1차 출시에 넣을 기능 3가지 확정" },
+    { "id": "t2", "label": "출시 일정", "start_sec": 620, "end_sec": 1180, "color": "#1baf7a", "summary": "8월 출시로 방향 → 후반 9월 언급으로 충돌" },
+    { "id": "t3", "label": "예산", "start_sec": 1180, "end_sec": 1760, "color": "#e34948", "summary": "3천만원 → 후반 2천만원 언급, 상충" },
+    { "id": "t4", "label": "마케팅 채널", "start_sec": 1760, "end_sec": 2340, "color": "#eb6834", "summary": "인스타 + 유튜브 숏폼 확정" },
+    { "id": "t5", "label": "일정 마무리 (재논의)", "start_sec": 2340, "end_sec": 2760, "color": "#4a3aa7", "summary": "출시일을 다시 9월로 언급하며 마무리, 앞선 결정과 충돌" }
+  ],
+  "flags": [
+    {
+      "id": "f1",
+      "type": "모순",
+      "severity": "high",
+      "title": "예산 상한 발언이 뒤바뀜 (3천만원 → 2천만원)",
+      "topic": "예산",
+      "statements": [
+        { "speaker": "p2", "time_sec": 1240, "quote": "예산은 재무팀이랑 얘기해봤는데 3천만원까지는 무리 없이 쓸 수 있어요." },
+        { "speaker": "p2", "time_sec": 2510, "quote": "아 근데 예산은 2천만원이 상한이라, 숏폼 제작비 빼면 광고비가 얼마 안 남아요." }
+      ],
+      "explanation": "김대리가 예산 논의(20분경)에서는 상한을 3천만원이라고 했으나, 회의 마무리(41분경)에서는 2천만원이 상한이라고 상반되게 말함. 두 발언 사이에 정정 언급이 없었음.",
+      "resolution": "미해결 — 재무팀과 실제 숫자 재확인 필요 (액션아이템 등록됨)"
+    },
+    {
+      "id": "f2",
+      "type": "번복",
+      "severity": "high",
+      "title": "출시일 결정이 조용히 8월 → 9월로 바뀜",
+      "topic": "출시 일정",
+      "statements": [
+        { "speaker": "p1", "time_sec": 690, "quote": "그럼 8월 셋째 주 출시로 다들 맞춰가는 걸로 하죠. 이건 확정입시다." },
+        { "speaker": "p4", "time_sec": 2600, "quote": "9월 초에 출시하는 거니까 리셀러 자료는 8월 말까지만 주면 되겠네요." }
+      ],
+      "explanation": "박팀장이 앞부분(11분경)에서 8월 셋째 주 출시를 '확정'이라고 못박았으나, 마무리(43분경)에서 정과장이 9월 초 출시를 전제로 말했고 아무도 이의를 제기하지 않음. 8월→9월 변경에 대한 명시적 결정이나 이유 설명이 없었음.",
+      "resolution": "미해결 — 개발 일정 재확인 후 출시일 재확정 필요 (액션아이템 등록됨)"
+    },
+    {
+      "id": "f3",
+      "type": "미해결",
+      "severity": "medium",
+      "title": "사전예약 이벤트 제안이 이후 논의되지 않음",
+      "topic": "핵심 기능 범위",
+      "statements": [
+        { "speaker": "p1", "time_sec": 210, "quote": "출시 전에 사전예약 이벤트 한 번 돌리면 초기 유저 확보에 좋을 것 같은데, 이건 뒤에서 다시 얘기하죠." }
+      ],
+      "explanation": "박팀장이 초반(3분경)에 사전예약 이벤트를 제안하며 '뒤에서 다시 얘기하자'고 했으나, 회의가 끝날 때까지 이 안건은 한 번도 다시 다뤄지지 않음.",
+      "resolution": "미해결 — 다음 회의 안건으로 이월 권장"
+    },
+    {
+      "id": "f4",
+      "type": "재논의",
+      "severity": "low",
+      "title": "핵심 기능 '자동요약' 범위에 대한 이견이 봉합 없이 넘어감",
+      "topic": "핵심 기능 범위",
+      "statements": [
+        { "speaker": "p2", "time_sec": 380, "quote": "자동요약은 회의록 수준으로 길게 뽑는 게 맞지 않을까요?" },
+        { "speaker": "p3", "time_sec": 420, "quote": "저는 오히려 3줄 요약처럼 짧아야 쓴다고 보거든요." }
+      ],
+      "explanation": "자동요약 기능의 길이/깊이에 대해 김대리와 이주임의 방향이 달랐으나, 결론 없이 다음 주제로 넘어감.",
+      "resolution": "부분 미해결 — 스펙 확정 시 결정 필요"
+    }
+  ],
+  "transcript": [
+    { "id": "s1", "speaker": "p1", "start_sec": 5, "text": "자, 오늘은 '루미' 1차 출시 준비 정렬 회의입니다. 크게 기능 범위, 일정, 예산, 마케팅 채널 이렇게 네 가지 보죠.", "topic_id": "t1", "flags": [] },
+    { "id": "s2", "speaker": "p2", "start_sec": 55, "text": "네, 기능부터요. 1차에는 음성메모, 자동요약, 공유링크 이 세 개만 확실히 넣는 게 좋을 것 같아요. 나머지는 2차로 빼고요.", "topic_id": "t1", "flags": [] },
+    { "id": "s3", "speaker": "p4", "start_sec": 120, "text": "영업 입장에서도 세 개면 설명하기 딱 좋아요. 너무 많으면 오히려 셀링포인트가 흐려져요.", "topic_id": "t1", "flags": [] },
+    { "id": "s4", "speaker": "p1", "start_sec": 210, "text": "출시 전에 사전예약 이벤트 한 번 돌리면 초기 유저 확보에 좋을 것 같은데, 이건 뒤에서 다시 얘기하죠.", "topic_id": "t1", "flags": ["f3"] },
+    { "id": "s5", "speaker": "p2", "start_sec": 380, "text": "자동요약은 회의록 수준으로 길게 뽑는 게 맞지 않을까요? 사용자들이 그걸 원할 것 같은데.", "topic_id": "t1", "flags": ["f4"] },
+    { "id": "s6", "speaker": "p3", "start_sec": 420, "text": "저는 오히려 3줄 요약처럼 짧아야 쓴다고 보거든요. 길면 결국 아무도 안 읽어요.", "topic_id": "t1", "flags": ["f4"] },
+    { "id": "s7", "speaker": "p2", "start_sec": 470, "text": "음... 일단 그건 스펙 잡을 때 다시 보죠. 기능 세 개는 확정으로 갈게요.", "topic_id": "t1", "flags": [] },
+    { "id": "s8", "speaker": "p1", "start_sec": 630, "text": "좋아요. 그럼 일정 얘기하죠. 개발팀 얘기로는 8월 중순이면 QA까지 끝난다고 했어요.", "topic_id": "t2", "flags": [] },
+    { "id": "s9", "speaker": "p2", "start_sec": 660, "text": "네 8월 중순이면 저희 마케팅 준비랑도 얼추 맞아요.", "topic_id": "t2", "flags": [] },
+    { "id": "s10", "speaker": "p1", "start_sec": 690, "text": "그럼 8월 셋째 주 출시로 다들 맞춰가는 걸로 하죠. 이건 확정입시다.", "topic_id": "t2", "flags": ["f2"] },
+    { "id": "s11", "speaker": "p4", "start_sec": 760, "text": "확정이면 저는 리셀러들한테 8월 초에는 자료 뿌려야 해요. 시간 빠듯하네요.", "topic_id": "t2", "flags": [] },
+    { "id": "s12", "speaker": "p3", "start_sec": 900, "text": "디자인 에셋도 8월 첫째 주까지는 확정돼야 숏폼 제작이 돌아가요.", "topic_id": "t2", "flags": [] },
+    { "id": "s13", "speaker": "p2", "start_sec": 1200, "text": "이제 예산 볼게요. 이게 제일 중요한데.", "topic_id": "t3", "flags": [] },
+    { "id": "s14", "speaker": "p2", "start_sec": 1240, "text": "예산은 재무팀이랑 얘기해봤는데 3천만원까지는 무리 없이 쓸 수 있어요.", "topic_id": "t3", "flags": ["f1"] },
+    { "id": "s15", "speaker": "p1", "start_sec": 1320, "text": "3천이면 숏폼 제작이랑 인플루언서 두세 명 붙일 여유는 있겠네요.", "topic_id": "t3", "flags": [] },
+    { "id": "s16", "speaker": "p4", "start_sec": 1420, "text": "인플루언서는 저희 쪽 리셀러 채널이랑 겹치지 않게만 해주세요.", "topic_id": "t3", "flags": [] },
+    { "id": "s17", "speaker": "p3", "start_sec": 1560, "text": "제작비는 숏폼 3편 기준으로 대략 잡아볼게요.", "topic_id": "t3", "flags": [] },
+    { "id": "s18", "speaker": "p1", "start_sec": 1800, "text": "채널은 어디로 가죠? 인스타는 기본으로 깔고.", "topic_id": "t4", "flags": [] },
+    { "id": "s19", "speaker": "p2", "start_sec": 1850, "text": "인스타 + 유튜브 숏폼 조합이 지금 우리 타겟엔 제일 맞아요. 틱톡은 2차 때 보고요.", "topic_id": "t4", "flags": [] },
+    { "id": "s20", "speaker": "p4", "start_sec": 1980, "text": "그 조합 좋습니다. 리셀러들한테도 유튜브 링크가 공유하기 편해요.", "topic_id": "t4", "flags": [] },
+    { "id": "s21", "speaker": "p3", "start_sec": 2100, "text": "그럼 숏폼 3편 컨셉 잡아서 다음 주에 초안 공유할게요.", "topic_id": "t4", "flags": [] },
+    { "id": "s22", "speaker": "p1", "start_sec": 2360, "text": "자 그럼 정리하죠. 기능 세 개 확정, 채널 인스타+유튜브 확정.", "topic_id": "t5", "flags": [] },
+    { "id": "s23", "speaker": "p2", "start_sec": 2510, "text": "아 근데 예산은 2천만원이 상한이라, 숏폼 제작비 빼면 광고비가 얼마 안 남아요.", "topic_id": "t5", "flags": ["f1"] },
+    { "id": "s24", "speaker": "p4", "start_sec": 2600, "text": "9월 초에 출시하는 거니까 리셀러 자료는 8월 말까지만 주면 되겠네요.", "topic_id": "t5", "flags": ["f2"] },
+    { "id": "s25", "speaker": "p1", "start_sec": 2680, "text": "네 그럼 각자 액션아이템 정리해서 공유해주세요. 수고하셨습니다.", "topic_id": "t5", "flags": [] }
+  ]
+}

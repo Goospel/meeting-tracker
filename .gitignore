@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────
+#  Secrets / 환경 (절대 커밋 금지)
+# ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+application-local.yml
+application-local.yaml
+application-*.local.yml
+secrets*.json
+.aws/
+
+# 한글 커밋 메시지 임시파일 (T-026)
+.commit-msg-tmp
+
+# ─────────────────────────────────────────────
+#  Java / Spring (Gradle · Maven)
+# ─────────────────────────────────────────────
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+target/
+*.class
+bin/
+out/
+*.log
+logs/
+hs_err_pid*
+
+# ─────────────────────────────────────────────
+#  Node / React (Vite)
+# ─────────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+coverage/
+
+# ─────────────────────────────────────────────
+#  Terraform (IaC)  — .terraform.lock.hcl 은 커밋함
+# ─────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
+
+# ─────────────────────────────────────────────
+#  IDE / OS
+# ─────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
