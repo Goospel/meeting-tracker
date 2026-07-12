@@ -1,0 +1,36 @@
+{
+  "_note": "mock Claude 감지 출력 — 실제 API 호출 아님. 골든 4종을 모두 맞힌 '충실한' 예측. 인용은 전사본의 substring이라 grounding됨.",
+  "flags": [
+    {
+      "id": "c1",
+      "type": "모순",
+      "statements": [
+        { "speaker": "p2", "quote": "3천만원까지는 무리 없이 쓸 수 있어요" },
+        { "speaker": "p2", "quote": "예산은 2천만원이 상한이라" }
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "번복",
+      "statements": [
+        { "speaker": "p1", "quote": "8월 셋째 주 출시로 다들 맞춰가는 걸로 하죠" },
+        { "speaker": "p4", "quote": "9월 초에 출시하는 거니까" }
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "미해결",
+      "statements": [
+        { "speaker": "p1", "quote": "사전예약 이벤트 한 번 돌리면" }
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "재논의",
+      "statements": [
+        { "speaker": "p2", "quote": "자동요약은 회의록 수준으로 길게 뽑는 게 맞지 않을까요" },
+        { "speaker": "p3", "quote": "3줄 요약처럼 짧아야 쓴다고 보거든요" }
+      ]
+    }
+  ]
+}

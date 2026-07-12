@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "detect-bench"
+version = "0.1.0"
+description = "회의 흐름/모순 감지 품질 벤치마크 — Claude 감지 vs 골든 라벨 (meeting-tracker 2단계)"
+requires-python = ">=3.11"
+# 런타임 의존성 0 — 표준 라이브러리(unicodedata)만. stage-1(stt-bench)과 같은 재현성 원칙.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["detect_bench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

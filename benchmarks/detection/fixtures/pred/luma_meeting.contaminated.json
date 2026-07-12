@@ -1,0 +1,44 @@
+{
+  "_note": "mock Claude 감지 출력 — 4가지 실패모드를 심었다: ① 정타(모순) ② 타입혼동(번복→모순, 같은 발언) ③ 미해결 누락 ④ 정타(재논의) + 할루시 인용(전사에 없음) + grounding됐지만 골든에 없는 가짜 미해결.",
+  "flags": [
+    {
+      "id": "c1",
+      "type": "모순",
+      "statements": [
+        { "speaker": "p2", "quote": "3천만원까지는 무리 없이 쓸 수 있어요" },
+        { "speaker": "p2", "quote": "예산은 2천만원이 상한이라" }
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "모순",
+      "statements": [
+        { "speaker": "p1", "quote": "8월 셋째 주 출시로 다들 맞춰가는 걸로 하죠" },
+        { "speaker": "p4", "quote": "9월 초에 출시하는 거니까" }
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "재논의",
+      "statements": [
+        { "speaker": "p2", "quote": "자동요약은 회의록 수준으로 길게 뽑는 게 맞지 않을까요" },
+        { "speaker": "p3", "quote": "3줄 요약처럼 짧아야 쓴다고 보거든요" }
+      ]
+    },
+    {
+      "id": "hallu1",
+      "type": "모순",
+      "statements": [
+        { "speaker": "p4", "quote": "매출 목표는 오십억으로 잡읍시다" },
+        { "speaker": "p1", "quote": "아니 삼십억이 맞습니다" }
+      ]
+    },
+    {
+      "id": "spurious1",
+      "type": "미해결",
+      "statements": [
+        { "speaker": "p2", "quote": "인스타 + 유튜브 숏폼 조합이 지금 우리 타겟엔 제일 맞아요" }
+      ]
+    }
+  ]
+}
