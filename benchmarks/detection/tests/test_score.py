@@ -225,3 +225,47 @@ def test_type_confused_fp_is_flagged():
     assert fps["c2"].type_confused is True          # f2(번복)를 모순으로 오분류
     assert fps["spurious1"].type_confused is False  # 진짜 대응 없음
     assert fps["hallu1"].type_confused is False
+
+
+# ── 실측 전 보강 ③: 미지 예측 type은 크래시 대신 FP(+localization은 잡음) ──────
+
+def test_unknown_pred_type_is_false_positive_not_crash():
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나", 10)]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    # 미지 type 예측(전사엔 grounding되지만 골든 type과 다름) → 크래시 없이 채점.
+    pred = FlowFlag("bad", "논리적모순", [Statement("p1", "실재하는 발언 하나")])
+    s = score_detection(golden, [pred])
+    assert (s.overall.tp, s.overall.fp, s.overall.fn) == (0, 1, 1)   # g 놓침, bad 가짜
+    fp = {f.flag_id: f for f in s.false_positives}["bad"]
+    assert fp.type_confused is True                                  # 세그먼트로는 매칭됨
+    assert s.localization.tp == 1                                    # 흐름단절 자체는 잡음
+    assert len(s.type_confusions) == 1 and s.type_confusions[0].pred_type == "논리적모순"
+    assert s.per_type["논리적모순"].fp == 1                           # 미지 type도 표에 집계
+
+
+# ── 실측 전 보강 ①: 경계 걸친 인용도 매칭 ─────────────────────────────────────
+
+def test_boundary_spanning_pred_matches_golden():
+    # 경계 인용은 같은 화자 연속 세그먼트에 한정(STT가 한 화자 발화를 쪼갠 경우).
+    tx = [TranscriptSegment("s1", "p1", "이건 확정입시다.", 690),
+          TranscriptSegment("s2", "p1", "확정이면 저는 리셀러들한테 자료 뿌려야 해요.", 760)]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.REVERSAL,
+                                 [Statement("p1", "이건 확정입시다.", time_sec=690),
+                                  Statement("p1", "확정이면 저는 리셀러들한테 자료 뿌려야 해요.", time_sec=760)])]}
+    # 예측이 경계를 걸친 단일 인용으로 같은 흐름단절 지목 → grounding이 두 세그먼트로 확장돼 매칭.
+    pred = FlowFlag("p", FlagType.REVERSAL,
+                    [Statement("p1", "확정입시다. 확정이면 저는 리셀러들한테", time_sec=690)])
+    s = score_detection(golden, [pred])
+    assert (s.overall.tp, s.overall.fp, s.overall.fn) == (1, 0, 0)
+
+
+def test_pred_string_time_sec_does_not_crash_run():
+    # [리뷰 #5] 예측의 비숫자 time_sec가 채점 run 전체를 TypeError로 죽이면 안 된다(per-flag 격리).
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나", 10)]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    pred = FlowFlag("p", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나", time_sec="00:10")])
+    s = score_detection(golden, [pred])                 # 크래시 없이 완주
+    assert s.overall.tp == 1                             # 문자열 힌트 무시하고 내용으로 매칭

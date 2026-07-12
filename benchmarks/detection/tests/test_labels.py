@@ -13,6 +13,7 @@ import pytest
 from detect_bench.labels import (
     FlagType,
     FlowFlag,
+    flag_from_data,
     load_meeting,
     load_pred_flags,
     meeting_from_data,
@@ -132,3 +133,119 @@ def test_duplicate_segment_id_raises():
     data["transcript"].append(dict(data["transcript"][0]))   # s1 중복
     with pytest.raises(ValueError):
         validate_golden(meeting_from_data(data))
+
+
+# ── 실측 전 보강 ③: 예측 변형 type 라벨 per-flag 강등 / 정규화 ────────────────
+# 실제 Claude 출력은 미지 type 라벨(영문·변형)을 낼 수 있다. flag 하나의 변형 라벨이
+# run 전체를 중단시키면 안 된다 — 예측은 강등(원문 보존), 골든은 여전히 엄격.
+
+def test_pred_unknown_type_does_not_crash_and_keeps_raw():
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "논리적모순", "statements": [{"speaker": "p2", "quote": "x"}]}])
+    assert len(flags) == 1
+    assert flags[0].type == "논리적모순"          # 크래시 대신 원문 보존(per-flag 강등)
+
+
+def test_pred_english_type_is_normalized():
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "reversal", "statements": [{"speaker": "p2", "quote": "x"}]}])
+    assert flags[0].type == FlagType.REVERSAL       # 보수적 별칭표로 정규화
+
+
+def test_golden_unknown_type_still_raises():
+    # 골든은 여전히 엄격 — 변형 라벨은 malformed 골든이다(강등 대상 아님).
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "논리적모순", "statements": [{"speaker": "p1", "quote": "x"}]}]})
+
+
+def test_golden_nfd_korean_type_is_accepted():
+    # [리뷰 #7] NFD 분해형/공백 패딩된 정식 한글 유형은 정규화 후 인식돼야 한다(정당한 골든 오거부 방지).
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", "모순")           # 자모 분해형
+    assert nfd != "모순"                                  # 실제로 다른 코드포인트임을 확인
+    f = flag_from_data({"id": "f1", "type": f"  {nfd} ",
+                        "statements": [{"speaker": "p1", "quote": "x"}]})
+    assert f.type == FlagType.CONTRADICTION
+
+
+def test_golden_english_alias_type_raises():
+    # [리뷰 #6/#8] 별칭표는 예측 전용 — 골든에 영문 라벨이 오면 정규화가 아니라 거부여야 한다.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "reversal", "statements": [{"speaker": "p1", "quote": "x"}]}]})
+
+
+def test_pred_missing_type_key_does_not_crash():
+    # [리뷰1 #11] 예측 flag에 type 키 자체가 없어도 배치 전체를 죽이지 않고 per-flag 강등.
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "모순", "statements": [{"speaker": "p2", "quote": "x"}]},
+         {"id": "p2", "statements": [{"speaker": "p3", "quote": "y"}]}])   # type 키 누락
+    assert len(flags) == 2                               # 하나 빠졌다고 배치가 죽지 않음
+    assert flags[0].type == FlagType.CONTRADICTION
+
+
+def test_pred_null_quote_does_not_crash():
+    # [리뷰2 #3 HIGH] 예측 statement의 quote:null이 NFC normalize에서 TypeError로 배치를 죽이면
+    # 안 된다 — 빈 인용으로 강등(불변식상 quote도 신뢰 불가).
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "모순", "statements": [{"speaker": "p2", "quote": None}]}])
+    assert len(flags) == 1
+    assert flags[0].statements[0].quote == ""
+
+
+def test_pred_missing_id_degrades():
+    # [리뷰2 #5] 예측 flag에 id/flag_id가 둘 다 없어도 배치 전체를 죽이지 않는다(예측 id는 표시용,
+    # 채점기는 인덱스 참조). type 강등과 대칭.
+    flags = load_pred_flags_data(
+        [{"type": "모순", "statements": [{"speaker": "p2", "quote": "x"}]},          # id 없음
+         {"id": "p2", "type": "번복", "statements": [{"speaker": "p3", "quote": "y"}]}])
+    assert len(flags) == 2
+
+
+def test_golden_missing_id_raises():
+    # 골든은 여전히 엄격 — id 누락은 malformed 골든.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"type": "모순", "statements": [{"speaker": "p1", "quote": "x"}]}]})
+
+
+def test_pred_null_statements_does_not_crash():
+    # [리뷰3] 예측 statements:null(값 존재)이 `for s in None`으로 배치를 죽이면 안 된다 → 빈 목록 강등.
+    flags = load_pred_flags_data([{"id": "p1", "type": "모순", "statements": None}])
+    assert len(flags) == 1 and flags[0].statements == []
+
+
+def test_pred_nondict_statement_element_skipped():
+    # [리뷰3] statements 리스트의 비-dict 원소(문자열/숫자/null)는 크래시가 아니라 건너뜀.
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "모순",
+          "statements": ["그냥 문자열", {"speaker": "p2", "quote": "실제"}, None]}])
+    assert len(flags) == 1 and len(flags[0].statements) == 1
+    assert flags[0].statements[0].quote == "실제"
+
+
+def test_pred_nonlist_flags_is_clean_error():
+    # [리뷰3] {"flags": null} 같은 구조적 오류는 트레이스백이 아니라 클린 에러(load에서 ValueError).
+    with pytest.raises(ValueError):
+        load_pred_flags_data({"flags": None})
+
+
+def test_pred_dict_without_flags_key_is_clean_error():
+    # [리뷰4] "flags" 키가 아예 없는 dict 예측도 subscript KeyError가 아니라 디스크립티브 ValueError.
+    with pytest.raises(ValueError):
+        load_pred_flags_data({"detections": []})
+
+
+def test_pred_nondict_flag_element_skipped():
+    # [리뷰3] 예측 리스트의 비-dict flag 원소는 배치를 죽이지 않고 건너뜀.
+    flags = load_pred_flags_data(
+        ["그냥 문자열", {"id": "p1", "type": "모순", "statements": [{"speaker": "p2", "quote": "x"}]}])
+    assert len(flags) == 1 and flags[0].flag_id == "p1"
+
+
+def test_golden_null_statements_rejected():
+    # 골든의 statements:null은 크래시가 아니라 빈 목록 강등 후 검증 게이트가 거부.
+    with pytest.raises(ValueError):
+        validate_golden(meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순", "statements": None}]}))

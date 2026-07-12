@@ -12,7 +12,18 @@
 
 ## 2026-07-12
 
-### feat · 2단계 감지 품질 채점 하네스 — Claude 흐름/모순 감지 vs 골든 라벨 (이 PR)
+### feat · 감지 하네스 실측 전 보강 3종 — 같은-화자 span·반복발화 힌트·변형 type 강등 (이 PR)
+- 2단계 채점 하네스(`benchmarks/detection/`)를 **실제 Claude 출력**에 넣기 전 필수 보강 3종. mock 픽스처에선 안 밟히지만 실측에서 반드시 터지는 3구멍을 TDD로 닫음:
+  - **① 인접 세그먼트 걸친 인용** — 경계를 걸친 정당한 인용이 단일-세그먼트 3방법을 다 실패해 통째로 '할루시' 오분류되던 것 → `ground_quote_span`/`_span_grounding` 신설로 **같은 화자** 연속 세그먼트 창(window) substring 매칭. STT는 한 화자 발화를 쪼개므로 경계 매칭은 같은 화자에 한정(교차화자 스티칭 = 실재 연속발화 아님 → 거부).
+  - **② 반복 발화 오귀속** — 같은 텍스트가 여러 세그먼트에 나올 때 grounding이 항상 첫 출현을 골라, 후행 출현을 가리키는 정당한 골든이 게이트에서 거부되던 것 → statement의 speaker/time_sec을 grounding 힌트(`_pick`)로 전달해 올바른 출현 선택.
+  - **③ 변형 type 라벨 run 중단** — 예측의 미지 type 라벨(`FlagType(raw)` ValueError)이 채점 run 전체를 죽이던 것 → 예측만 per-flag 강등(원문 str 보존, 채점기가 미매칭 FP로 처리), 골든은 여전히 엄격. NFC 정규화 우선 + 영문 별칭표(예측 전용).
+- **적대적 코드리뷰 1R**(19에이전트 5각도, 12확정+2sweep): grounding 초안을 **뿌리에서 재설계** — collapse 정규화 일관화, tier 우선 등. **HIGH**: 예측의 비숫자 `time_sec`("00:11" 등 Claude 타임스탬프 문자열)이 `abs(start_sec - time_sec)`에서 TypeError로 run 전체 중단 → `_num()` 숫자 가드로 강등(보강 ②가 보강 ③의 격리 불변식을 새로 깨던 회귀, → `T-029`). labels: 영문 별칭이 골든 엄격성으로 새던 것 차단·NFD/공백 골든 오거부 수정·누락 type 키 강등. report: 강등 미지 type의 파이프(`|`)가 표 열 깨던 것 무력화.
+- **적대적 코드리뷰 2R**(11에이전트, 8확정): 1R 재작성이 **새로 만든** 결함까지 잡아 span을 재재설계 — **뿌리**: '같은 화자' 제약을 **신뢰 불가한 예측 화자**에 하드 게이트로 걸어(예측이 화자를 생략·이름표기하면 정당한 경계 인용이 통째로 할루시로 뒤집힘) → 창 화자 동질성을 **전사 세그먼트끼리**로 판정하고 예측 speaker/time은 후보를 좁히는 **필터**로만, 필터 후에도 창이 여럿이면 **grounding 안 함**(추측으로 틀린 창 귀속 = 조용한 점수 오염 방지). tier2 퍼지 단일은 그 세그먼트를 **포함하는** span일 때만 확장(무관 창 하이재킹 차단). **HIGH**: 예측 `quote:null`이 `normalize(NFC, None)` TypeError로 배치 중단 → quote/speaker 비문자열도 ""로 강등(type/time만 막고 quote는 안 막던 불완전 수정). id 없으면 예측은 `pred{i}` 강등(골든은 raise). `_safe`에 `\r` 추가.
+- **적대적 코드리뷰 3R**(7에이전트, 2확정): 2R 재작성의 남은 불완전 2건. **HIGH**: STT가 한 화자를 3+ 세그먼트로 쪼갠 흔한 런에서, 같은 위치의 min창과 그 상위집합(superset)창을 '서로 다른 후보'로 세어 mid-run 경계 인용을 모호로 오판·드롭 → 후보를 **최소 커버 창으로 subset 축약** 후 모호성 판정. **medium**: `quote:null`은 막았으나 `statements` **컨테이너 shape**(null/문자열/비-dict 원소)·비-dict flag·비-list flags는 안 막아 `for s in None` 등 TypeError로 배치 중단 → 예측은 shape별 per-flag 강등(골든은 엄격 raise), 구조적 오류는 클린 return 2.
+- **적대적 코드리뷰 4R**(4에이전트, 검증 수렴): correctness 결함 0 — 3R까지의 재수정이 새 회귀를 만들지 않음을 확인. 저severity 1건만: `flags` 키 **부재** dict가 subscript KeyError로 암호적 메시지 → `data.get("flags")`로 디스크립티브 ValueError 통일(가드 완성).
+- **TDD** Red→Green, **82테스트**(46 → +36). **왜**: ⓐ(실제 Claude 감지 적용)의 신뢰 전제 — 채점기가 실측 입력에서 조용히 틀리지 않도록 실측 전에 격리·경계·정규화 구멍을 먼저 막음. 적대적 리뷰 4R로 수렴(신뢰 불가 예측의 모든 필드/컨테이너 shape에 per-flag 강등 관철).
+
+### feat · 2단계 감지 품질 채점 하네스 — Claude 흐름/모순 감지 vs 골든 라벨 ([PR #9](https://github.com/Goospel/meeting-tracker/pull/9))
 - 새 벤치마크 패키지 `benchmarks/detection/`(stt와 형제, **런타임 의존성 0**): 완벽한 전사본을 줬을 때 Claude가 흐름단절 4종(모순/번복/미해결/재논의)을 얼마나 맞히는지 per-type P/R/F1로 잰다. 1단계 CTER의 "가짜/놓친 분리" 철학을 감지층에 적용.
 - `labels.py`: 골든/예측 데이터 모델 + 로더 + **양방향 일관성 게이트**(전사 세그먼트가 flag을 역참조 ↔ flag 인용이 그 세그먼트에 grounding — stage-1 오프셋 불변식에 대응하는 무드리프트 방지). 골든 = `docs/data-schema.json`의 완성 회의 1건 재사용(전사 25세그·flag 4).
 - `grounding.py`: quote grounding **이중 역할** — ① 할루시 인용(전사에 없음) 드롭 ② 인용→세그먼트 해소로 매칭 키 제공. NFC 부분일치 + 토큰 Jaccard≥0.6 폴백.

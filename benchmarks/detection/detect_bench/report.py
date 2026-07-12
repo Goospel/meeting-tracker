@@ -16,8 +16,10 @@ _TYPES = [t.value for t in FlagType]
 
 
 def _safe(s) -> str:
-    # 예측 flag id/type는 신뢰 불가(외부 Claude 출력) — 개행/백틱으로 마크다운을 깨지 않도록.
-    return str(s).replace("\n", " ").replace("`", "'")
+    # 예측 flag id/type는 신뢰 불가(외부 Claude 출력) — 마크다운(특히 표)을 깨지 않도록 무력화.
+    # 개행(\n·\r 둘 다 CommonMark 줄바꿈)→공백, 백틱→작은따옴표, 파이프(표 열 구분자)→'/'.
+    return (str(s).replace("\r", " ").replace("\n", " ")
+            .replace("`", "'").replace("|", "/"))
 
 
 def format_report(golden_meeting: dict, score: DetectionScore) -> str:
@@ -37,11 +39,12 @@ def format_report(golden_meeting: dict, score: DetectionScore) -> str:
         "| 유형 | 골든 | TP | FP(가짜) | FN(놓침) | 정밀도 | 재현율 | F1 |",
         "|---|--:|--:|--:|--:|--:|--:|--:|",
     ]
-    for t in _TYPES:
+    extra = [t for t in score.per_type if t not in _TYPES]   # 예측 미지 type(강등) 행
+    for t in _TYPES + sorted(extra):
         prf = score.per_type[t]
         n = prf.tp + prf.fn
         lines.append(
-            f"| {t} | {n} | {prf.tp} | {prf.fp} | {prf.fn} | "
+            f"| {_safe(t)} | {n} | {prf.tp} | {prf.fp} | {prf.fn} | "
             f"{prf.precision:.2f} | {prf.recall:.2f} | {prf.f1:.2f} |"
         )
     lines.append("")
