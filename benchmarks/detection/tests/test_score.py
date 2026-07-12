@@ -269,3 +269,33 @@ def test_pred_string_time_sec_does_not_crash_run():
     pred = FlowFlag("p", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나", time_sec="00:10")])
     s = score_detection(golden, [pred])                 # 크래시 없이 완주
     assert s.overall.tp == 1                             # 문자열 힌트 무시하고 내용으로 매칭
+
+
+# ── 리뷰4(xhigh): 골든 단일 grounding · quote:null 사유 분리 ──────────────────
+
+def test_golden_segset_not_inflated_by_span_expansion():
+    # [리뷰4 G7c] 골든의 tier-2 퍼지 인용이 3세그 창으로 span 확장되면, 핵심 세그먼트를
+    # 정확히 인용한 정탐 예측이 Jaccard 1/3 < 0.5로 FP+FN 처리된다 — 골든은 단일 grounding.
+    tx = [TranscriptSegment("g1", "A", "그래서 우리가", 10),
+          TranscriptSegment("g2", "A", "예산을 확 삭감하기로 결정", 12),
+          TranscriptSegment("g3", "A", "인원은 늘립니다", 14)]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.REVERSAL,
+                                 [Statement("A", "우리가 예산을 확 삭감하기로 결정 인원은", time_sec=12)])]}
+    pred = FlowFlag("p", FlagType.REVERSAL,
+                    [Statement("A", "예산을 확 삭감하기로 결정", time_sec=12)])
+    s = score_detection(golden, [pred])
+    assert (s.overall.tp, s.overall.fp, s.overall.fn) == (1, 0, 0)
+
+
+def test_pred_null_quote_is_no_evidence_not_hallucination():
+    # [리뷰4 G11] quote:null(→"" 강등) 예측은 '할루시 인용'이 아니라 '근거 인용 없음'으로
+    # 분류돼야 실패모드 분리(할루시 vs 무근거)가 오염되지 않는다.
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나", 10)]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    pred = FlowFlag("p", FlagType.UNRESOLVED, [Statement("p1", "", None)])
+    s = score_detection(golden, [pred])
+    fp = {f.flag_id: f for f in s.false_positives}["p"]
+    assert fp.reason == "no_evidence"
+    assert fp.ungrounded_quotes == ()

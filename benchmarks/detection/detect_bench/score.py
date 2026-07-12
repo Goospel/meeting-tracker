@@ -147,7 +147,9 @@ def score_detection(golden_meeting: dict, pred_flags: list, *,
 
     golds = []
     for gf in golden_meeting["flags"]:
-        segs, _ = resolve_flag_segments(gf, transcript)
+        # 골든은 단일 세그먼트 grounding(span=False, validate_golden과 동일 의미론) — span 확장으로
+        # 골든 segset이 부풀면 핵심 세그먼트만 정확히 인용한 정탐이 Jaccard 문턱에서 FP+FN이 된다.
+        segs, _ = resolve_flag_segments(gf, transcript, span=False)
         if not segs:                                # grounding 0 → 조용한 FN 강등 대신 에러
             raise ValueError(
                 f"골든 flag {gf.flag_id}이 전사에 grounding되지 않음 — validate_golden을 먼저 통과시키세요"

@@ -43,7 +43,13 @@ def _coerce_type(raw, *, strict: bool):
       출력에만 적용. 골든에 영문 라벨이 오면 malformed로 거부(엄격성 유지).
     - **예측 강등**: 정식도 별칭도 아니면 원문 str로 강등 — flag 하나의 변형 라벨이 run
       전체를 중단시키지 않게. 채점기가 미매칭 예측(가짜)으로 다룬다.
+    - **키 부재/null**: 원문이 없으므로 str(None)이 지어낸 "None"이 아니라 명시적 센티널 —
+      실제로 "None"을 출력한 예측과 리포트에서 구분돼야 한다. 골든은 엄격 거부.
     """
+    if raw is None:
+        if strict:
+            raise ValueError("flag에 type이 없음 (malformed 골든)")
+        return "(type 누락)"
     norm = unicodedata.normalize("NFC", str(raw)).strip()
     try:
         return FlagType(norm)                         # 정규화 후 정식 유형
@@ -84,13 +90,26 @@ class TranscriptSegment:
     flags: tuple = ()                    # 골든 역참조(flag id들)
 
 
-def _statement_from_data(d: dict) -> Statement:
+def _is_num(x) -> bool:
+    """유한 숫자 판정(bool·NaN 제외) — grounding._num과 같은 기준(존재≠타입≠유한, T-029/T-030)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x
+
+
+def _statement_from_data(d: dict, *, strict: bool) -> Statement:
     q = d.get("quote")
     sp = d.get("speaker")
-    return Statement(                                 # quote/speaker 비문자열(예측 null/숫자)은 ""로 강등
-        speaker=sp if isinstance(sp, str) else "",    # — normalize(None) TypeError로 배치가 죽지 않게
-        quote=unicodedata.normalize("NFC", q) if isinstance(q, str) else "",
-        time_sec=d.get("time_sec"),
+    ts = d.get("time_sec")
+    if strict:                                        # 골든: 필드 레벨도 엄격 — 무성 강등은 증거 축소
+        if not isinstance(q, str):
+            raise ValueError(f"statement quote가 문자열이 아님 (malformed 골든): {type(q).__name__}")
+        if not isinstance(sp, str):
+            raise ValueError(f"statement speaker가 문자열이 아님 (malformed 골든): {type(sp).__name__}")
+        if ts is not None and not _is_num(ts):
+            raise ValueError(f"statement time_sec이 숫자가 아님 (malformed 골든): {ts!r}")
+    return Statement(                                 # 예측: 비문자열(null/숫자)은 ""로 강등
+        speaker=unicodedata.normalize("NFC", sp) if isinstance(sp, str) else "",   # 화자도 NFC —
+        quote=unicodedata.normalize("NFC", q) if isinstance(q, str) else "",       # NFD 힌트 무성 불발 방지
+        time_sec=ts,
     )
 
 
@@ -110,48 +129,105 @@ def _statements_from_data(raw, *, strict: bool) -> list:
     out = []
     for s in raw:
         if isinstance(s, dict):
-            out.append(_statement_from_data(s))
+            out.append(_statement_from_data(s, strict=strict))
         elif strict:
             raise ValueError(f"statement가 dict가 아님 (malformed 골든): {type(s).__name__}")
     return out
 
 
+def _str_or(v, default: str, name: str, *, strict: bool) -> str:
+    """메타 문자열 필드 강등 — 키 부재/null은 기본값, 비문자열은 골든=에러/예측=기본값.
+
+    severity/title 등은 지금은 표시용이지만, 미래 소비자(리포트 열 추가 등)가 str 선언을 믿고
+    None/숫자에 .upper() 등을 걸어 터지는 것을 경계에서 차단(quote/type 가드와 대칭)."""
+    if v is None:
+        return default
+    if isinstance(v, str):
+        return v
+    if strict:
+        raise ValueError(f"{name}이 문자열이 아님 (malformed 골든): {type(v).__name__}")
+    return default
+
+
 def flag_from_data(d: dict, *, strict: bool = True, fallback_id: str | None = None) -> FlowFlag:
     if not isinstance(d, dict):                       # 비-dict flag(골든=malformed, 예측=로더가 선필터)
         raise ValueError(f"flag이 dict가 아님 (malformed 골든): {type(d).__name__}")
-    fid = d.get("flag_id") or d.get("id")             # 골든/예측은 "id", 내부는 flag_id
-    if not fid:                                        # id 누락 — 골든은 malformed, 예측은 표시용 강등
+    fid = d.get("flag_id")                            # 골든/예측은 "id", 내부는 flag_id
+    if fid is None:
+        fid = d.get("id")
+    if fid is None:                                    # 존재 검사(is None) — 0·""는 존재하는 id(falsy 함정 회피)
         if strict:
             raise ValueError("flag에 id가 없음 (malformed 골든)")
         fid = fallback_id if fallback_id is not None else ""
+    elif not strict:
+        fid = str(fid)                                 # 예측 숫자 id는 str로 — 원본 값 보존(추적성) + 타입 통일
     return FlowFlag(
         flag_id=fid,
         type=_coerce_type(d.get("type"), strict=strict),  # 키 누락(None)도 강등 경로로(예측 배치 안 죽게)
         statements=_statements_from_data(d.get("statements"), strict=strict),
-        severity=d.get("severity", "medium"),
-        title=d.get("title", ""),
-        topic=d.get("topic", ""),
-        explanation=d.get("explanation", ""),
-        resolution=d.get("resolution", ""),
+        severity=_str_or(d.get("severity"), "medium", "severity", strict=strict),
+        title=_str_or(d.get("title"), "", "title", strict=strict),
+        topic=_str_or(d.get("topic"), "", "topic", strict=strict),
+        explanation=_str_or(d.get("explanation"), "", "explanation", strict=strict),
+        resolution=_str_or(d.get("resolution"), "", "resolution", strict=strict),
     )
 
 
 def _segment_from_data(d: dict) -> TranscriptSegment:
+    """골든 전사 세그먼트 파싱 — 항상 엄격(세그먼트는 골든에서만 온다).
+
+    null/비문자열 text가 normalize에서 TypeError 트레이스백을 내는 대신, CLI의 클린 에러
+    (rc=2) 경로를 타도록 전부 디스크립티브 ValueError로 거부한다. start_sec 비숫자도 거부 —
+    힌트 산술(_pick/_span_grounding)이 무성으로 힌트를 버리는 것을 골든에서는 허용하지 않는다.
+    """
+    if not isinstance(d, dict):
+        raise ValueError(f"segment가 dict가 아님 (malformed 골든): {type(d).__name__}")
+    sid = d.get("segment_id")
+    if sid is None:
+        sid = d.get("id")
+    if sid is None:                                    # 존재 검사 — 0·""는 존재하는 id
+        raise ValueError("segment에 id가 없음 (malformed 골든)")
+    sp = d.get("speaker", "")
+    if not isinstance(sp, str):
+        raise ValueError(f"segment speaker가 문자열이 아님 (malformed 골든): {type(sp).__name__}")
+    text = d.get("text", "")
+    if not isinstance(text, str):
+        raise ValueError(f"segment text가 문자열이 아님 (malformed 골든): {type(text).__name__}")
+    ss = d.get("start_sec", 0.0)
+    if not _is_num(ss):
+        raise ValueError(f"segment start_sec이 숫자가 아님 (malformed 골든): {ss!r}")
+    fl = d.get("flags", ())
+    if fl is None:
+        fl = ()
+    if not isinstance(fl, (list, tuple)):
+        raise ValueError(f"segment flags가 리스트가 아님 (malformed 골든): {type(fl).__name__}")
     return TranscriptSegment(
-        segment_id=d.get("segment_id") or d["id"],
-        speaker=d.get("speaker", ""),
-        text=unicodedata.normalize("NFC", d.get("text", "")),
-        start_sec=d.get("start_sec", 0.0),
-        flags=tuple(d.get("flags", ())),
+        segment_id=sid,
+        speaker=unicodedata.normalize("NFC", sp),      # 화자도 NFC(문서화된 '모두 NFC' 불변식)
+        text=unicodedata.normalize("NFC", text),
+        start_sec=ss,
+        flags=tuple(fl),
     )
 
 
 def meeting_from_data(data: dict) -> dict:
-    """골든 raw dict → {meta, transcript, flags, raw}. 파일 경유 없이 파싱 재사용."""
+    """골든 raw dict → {meta, transcript, flags, raw}. 파일 경유 없이 파싱 재사용.
+
+    구조적 오류(비-dict 최상위·transcript/flags null)는 TypeError/AttributeError 트레이스백이
+    아니라 디스크립티브 ValueError — CLI가 클린 에러(rc=2)로 거부하게(예측 로더와 대칭).
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"골든이 dict(JSON 오브젝트)가 아님: {type(data).__name__}")
+    transcript = data.get("transcript", [])
+    if not isinstance(transcript, list):
+        raise ValueError(f"transcript가 리스트가 아님 (malformed 골든): {type(transcript).__name__}")
+    flags = data.get("flags", [])
+    if not isinstance(flags, list):
+        raise ValueError(f"flags가 리스트가 아님 (malformed 골든): {type(flags).__name__}")
     return {
         "meta": data.get("meta", {}),
-        "transcript": [_segment_from_data(s) for s in data.get("transcript", [])],
-        "flags": [flag_from_data(f) for f in data.get("flags", [])],
+        "transcript": [_segment_from_data(s) for s in transcript],
+        "flags": [flag_from_data(f) for f in flags],
         "raw": data,
     }
 
@@ -167,8 +243,12 @@ def load_pred_flags(path: str | Path) -> list:
     if not isinstance(items, list):                   # 구조적 오류(flags 부재/null/비-list)는 클린 에러
         raise ValueError("예측이 리스트 또는 {flags:[...]} 형태가 아님")
     # 예측은 변형 라벨/누락 키 per-flag 강등(배치 안 죽게). 비-dict flag는 건너뛰고, id 없으면 표시용 합성 id.
-    return [flag_from_data(f, strict=False, fallback_id=f"pred{i}")
-            for i, f in enumerate(items) if isinstance(f, dict)]
+    out = [flag_from_data(f, strict=False, fallback_id=f"pred{i}")
+           for i, f in enumerate(items) if isinstance(f, dict)]
+    if items and not out:                             # 전량 비-dict = 구조적 오류(전량 파싱 불가) —
+        raise ValueError(                             # '예측 0건'으로 무성 통과하면 벤치 비교가 오염된다
+            "예측 flag 원소가 전부 dict가 아님 — 전량 파싱 불가 (0건 감지와 구분)")
+    return out
 
 
 def validate_golden(meeting: dict) -> bool:
@@ -198,7 +278,9 @@ def validate_golden(meeting: dict) -> bool:
         for st in f.statements:
             if not st.speaker or not st.quote:
                 raise ValueError(f"{f.flag_id}: statement에 speaker/quote 누락")
-        segs, ungrounded = resolve_flag_segments(f, transcript)
+        # 골든은 단일 세그먼트 grounding(span=False) — span 확장은 신뢰 불가 예측 전용 구제책.
+        # 경계를 걸치는 골든 인용은 여기서 ungrounded로 시끄럽게 거부되므로 statement를 쪼개 라벨한다.
+        segs, ungrounded = resolve_flag_segments(f, transcript, span=False)
         if ungrounded:
             raise ValueError(
                 f"{f.flag_id}: 인용이 전사본에 grounding되지 않음 (malformed 골든): {ungrounded[0]!r}"

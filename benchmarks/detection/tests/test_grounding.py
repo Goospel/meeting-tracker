@@ -222,3 +222,92 @@ def test_resolve_uses_statement_speaker_time_for_repeat():
                     [Statement("p2", "네 좋습니다 그렇게 하죠", time_sec=500)])
     segs, _ = resolve_flag_segments(flag, _tx_repeat())
     assert segs == frozenset({"s2"})
+
+
+# ── 리뷰4(xhigh): 힌트 산술·창 기하 확정 결함 수정 ────────────────────────────
+
+def test_nan_time_hint_does_not_kill_unique_window():
+    # [리뷰4 G2a] NaN은 isinstance 숫자 가드를 통과하고 ==비반사성으로 최근접 필터를
+    # 전멸시킨다 — 비정상 힌트는 '무시'여야지 유일 창 grounding을 죽이면 안 된다.
+    tx = [TranscriptSegment("s1", "p1", "이건 확정입시다.", 690),
+          TranscriptSegment("s2", "p1", "확정이면 저는 리셀러들한테 자료 뿌려야 해요.", 760)]
+    span = ground_quote_span("확정입시다. 확정이면 저는 리셀러들한테", tx,
+                             speaker="p1", time_sec=float("nan"))
+    assert span == frozenset({"s1", "s2"})
+
+
+def test_nonnumeric_start_sec_loses_to_matching_time_hint():
+    # [리뷰4 G1] start_sec이 비숫자/None인 세그먼트가 거리 0.0(최우선)이 되어, 숫자 힌트가
+    # 정확히 가리키는 세그먼트를 이기면 안 된다(span 경로의 inf와 정합).
+    tx = [TranscriptSegment("s1", "p1", "네 좋습니다 그렇게 하죠", None),
+          TranscriptSegment("s2", "p1", "네 좋습니다 그렇게 하죠", 500)]
+    assert ground_quote("네 좋습니다 그렇게 하죠", tx, time_sec=499) == "s2"
+    tx2 = [TranscriptSegment("s1", "p1", "네 좋습니다 그렇게 하죠", "690"),
+           TranscriptSegment("s2", "p1", "네 좋습니다 그렇게 하죠", 500)]
+    assert ground_quote("네 좋습니다 그렇게 하죠", tx2, time_sec=499) == "s2"
+
+
+def test_tier2_tie_inside_window_expands_to_span():
+    # [리뷰4 G5] tier-2 동점(J=0.6 vs 0.6)에서 _pick이 창 밖 이른 후보를 골라도, 동점 후보
+    # 중 하나가 verbatim 창 안에 있으면 span으로 확장해야 한다(첫 출현 오귀속 방지).
+    tx = [TranscriptSegment("s1", "p1", "예산 초과 문제", 100),
+          TranscriptSegment("s2", "p2", "중간 발언", 150),
+          TranscriptSegment("s5", "p1", "예산 초과 문제", 200),
+          TranscriptSegment("s6", "p1", "다시 검토 그래서", 210)]
+    assert ground_quote_span("예산 초과 문제 다시 검토", tx, speaker="p1") == frozenset({"s5", "s6"})
+
+
+def test_whitespace_only_segment_does_not_break_window():
+    # [리뷰4 G3] 공백-only 세그먼트(STT 침묵)가 창 concat에 이중 공백을 만들어 정당한
+    # 경계 인용이 할루시로 떨어지면 안 된다.
+    tx = [TranscriptSegment("s1", "p1", "알파", 10),
+          TranscriptSegment("s2", "p1", "   ", 12),
+          TranscriptSegment("s3", "p1", "베타", 14)]
+    assert ground_quote_span("알파 베타", tx, speaker="p1") == frozenset({"s1", "s2", "s3"})
+
+
+def test_blank_speaker_labels_refuse_window_stitching():
+    # [리뷰4 G4] 화자 라벨이 전부 빈 문자열/부재면 ''=='' 로 모든 인접쌍이 '같은 화자'가 되어
+    # 교차화자 스티칭 거부가 무력화된다 — 동질성 판정 불가면 보수적으로 창을 만들지 않는다.
+    tx = [TranscriptSegment("s0", "", "그건 좀 아닌 것 같아요", 10),
+          TranscriptSegment("s1", "", "그래도 진행하시죠", 20)]
+    assert ground_quote_span("같아요 그래도", tx) == frozenset()
+
+    class _Bare:                            # 덕타이핑 — speaker 속성 자체가 없는 세그먼트
+        def __init__(self, sid, text):
+            self.segment_id, self.text = sid, text
+    bare = [_Bare("b0", "그건 좀 아닌 것 같아요"), _Bare("b1", "그래도 진행하시죠")]
+    assert ground_quote_span("같아요 그래도", bare) == frozenset()
+
+
+def test_window_time_distance_uses_nearest_segment_not_first():
+    # [리뷰4 G2b] 힌트가 진짜 창의 '뒤쪽' 세그먼트 시각을 가리켜도, 창 거리는 첫 세그먼트가
+    # 아니라 창 내 최근접 세그먼트 기준이어야 한다.
+    tx = [TranscriptSegment("s1", "p1", "알파", 100),
+          TranscriptSegment("s2", "p1", "베타 감마", 160),
+          TranscriptSegment("sX", "p2", "중간", 120),
+          TranscriptSegment("s7", "p1", "알파", 150),
+          TranscriptSegment("s8", "p1", "베타 감마", 155)]
+    assert ground_quote_span("알파 베타", tx, speaker="p1", time_sec=160) == frozenset({"s1", "s2"})
+
+
+def test_golden_single_mode_does_not_span_expand():
+    # [리뷰4 G7] 골든 경로(span=False)는 main 의미론(단일 세그먼트 + 힌트) — tier-2 퍼지
+    # 골든 인용이 이웃 세그먼트로 부풀어 validate/채점 segset을 오염시키면 안 된다.
+    tx = [TranscriptSegment("s5", "p1", "예산 초과 문제 우리가", 100),
+          TranscriptSegment("s6", "p1", "다시 검토합시다", 110)]
+    flag = FlowFlag("f", FlagType.UNRESOLVED,
+                    [Statement("p1", "예산 초과 문제 우리가 다시", time_sec=100)])
+    segs_single, ung_single = resolve_flag_segments(flag, tx, span=False)
+    assert segs_single == frozenset({"s5"}) and ung_single == []
+    segs_span, _ = resolve_flag_segments(flag, tx)      # 예측 경로(기본)는 기존대로 확장
+    assert segs_span == frozenset({"s5", "s6"})
+
+
+def test_empty_quote_is_not_hallucination():
+    # [리뷰4 G11] 강등된 빈 인용(quote:null)은 '전사에 없는 인용(할루시)'이 아니라
+    # '인용 자체가 없음' — ungrounded 목록에 들어가면 안 된다.
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나", 10)]
+    flag = FlowFlag("f", FlagType.CONTRADICTION, [Statement("p1", "", None)])
+    segs, ungrounded = resolve_flag_segments(flag, tx)
+    assert segs == frozenset() and ungrounded == []

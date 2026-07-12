@@ -16,9 +16,11 @@ _TYPES = [t.value for t in FlagType]
 
 
 def _safe(s) -> str:
-    # 예측 flag id/type는 신뢰 불가(외부 Claude 출력) — 마크다운(특히 표)을 깨지 않도록 무력화.
-    # 개행(\n·\r 둘 다 CommonMark 줄바꿈)→공백, 백틱→작은따옴표, 파이프(표 열 구분자)→'/'.
-    return (str(s).replace("\r", " ").replace("\n", " ")
+    # 예측 flag id/type/인용은 신뢰 불가(외부 Claude 출력) — 마크다운(특히 표)을 깨지 않도록 무력화.
+    # 개행(\n·\r 둘 다 CommonMark 줄바꿈)→공백, 백틱→작은따옴표, 파이프(표 열 구분자)→'/',
+    # HTML 활성 문자(& < >)→엔티티(마크다운 뷰어의 인라인 HTML 렌더/주입 차단; & 먼저 — 이중 이스케이프 방지).
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\r", " ").replace("\n", " ")
             .replace("`", "'").replace("|", "/"))
 
 

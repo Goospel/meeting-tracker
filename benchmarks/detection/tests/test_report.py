@@ -125,3 +125,28 @@ def test_report_neutralizes_cr_in_unknown_type():
     pred = FlowFlag("bad", "모순\r번복", [Statement("p1", "실재하는 발언 하나")])
     md = format_report(g, score_detection(g, [pred]))
     assert "\r" not in md
+
+
+def test_report_neutralizes_html_in_unknown_type():
+    # [리뷰4 K9] 미지 예측 type의 raw HTML(<img onerror=...>)이 _safe를 통과하면 마크다운
+    # 뷰어에서 인라인 HTML로 렌더된다 — 엔티티로 무력화.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나")]
+    g = {"meta": {}, "transcript": tx,
+         "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    pred = FlowFlag("bad", '<img onerror="x">', [Statement("p1", "실재하는 발언 하나")])
+    md = format_report(g, score_detection(g, [pred]))
+    assert "<img" not in md
+    assert "&lt;img" in md
+
+
+def test_cli_rejects_null_text_golden(tmp_path):
+    # [리뷰4 G10 e2e] 골든 text:null은 트레이스백(exit 1)이 아니라 클린 에러 rc=2.
+    bad = tmp_path / "bad_golden.json"
+    bad.write_text(json.dumps(
+        {"transcript": [{"id": "s1", "speaker": "p1", "text": None}], "flags": []},
+        ensure_ascii=False), encoding="utf-8")
+    pred = tmp_path / "pred.json"
+    pred.write_text("[]", encoding="utf-8")
+    rc = main(["--golden", str(bad), "--pred", str(pred)])
+    assert rc == 2

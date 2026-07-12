@@ -59,12 +59,16 @@ def test_load_pred_flags_accepts_list_or_wrapped():
 
 
 def load_pred_flags_data(data):
-    # 파일 경유 없이 파싱 재사용을 확인하기 위한 헬퍼 (tmp 파일로 우회).
+    # 파일 경유 없이 파싱 재사용을 확인하기 위한 헬퍼 (tmp 파일로 우회 — 반복 실행 시 누적되지 않게 삭제).
+    import os
     import tempfile
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False)
         p = fh.name
-    return load_pred_flags(p)
+    try:
+        return load_pred_flags(p)
+    finally:
+        os.unlink(p)
 
 
 # ── 검증 게이트 ────────────────────────────────────────────────────────────
@@ -249,3 +253,126 @@ def test_golden_null_statements_rejected():
     with pytest.raises(ValueError):
         validate_golden(meeting_from_data({"transcript": [], "flags": [
             {"id": "f1", "type": "모순", "statements": None}]}))
+
+
+# ── 리뷰4(xhigh): 골든 필드 엄격성·falsy id·클린 에러·NFC 화자 ────────────────
+
+def test_golden_nonstring_quote_raises():
+    # [리뷰4 G13] 골든 quote:123/null이 무성으로 ""가 되면 안 된다(main은 로드 시점 에러였음).
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순", "statements": [{"speaker": "p1", "quote": 123}]}]})
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순", "statements": [{"speaker": "p1", "quote": None}]}]})
+
+
+def test_golden_nonnumeric_time_sec_raises():
+    # [리뷰4 G13] 골든 time_sec 문자열("690")은 힌트가 무성으로 죽는다 — 골든은 엄격 거부.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순",
+             "statements": [{"speaker": "p1", "quote": "x", "time_sec": "690"}]}]})
+
+
+def test_golden_nonnumeric_segment_start_sec_raises():
+    # [리뷰4 G1 파생] 골든 세그먼트 start_sec 문자열/null도 엄격 거부(힌트 산술 무성 오염 방지).
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [
+            {"id": "s1", "speaker": "p1", "text": "x", "start_sec": "690"}], "flags": []})
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [
+            {"id": "s1", "speaker": "p1", "text": "x", "start_sec": None}], "flags": []})
+
+
+def test_golden_id_zero_is_accepted():
+    # [리뷰4 G9] id 0은 '존재하는 id'다 — falsy라고 'id가 없음'으로 오거부하면 안 된다.
+    f = flag_from_data({"id": 0, "type": "모순",
+                        "statements": [{"speaker": "p1", "quote": "x"}]})
+    assert f.flag_id == 0
+
+
+def test_pred_id_zero_is_preserved():
+    # [리뷰4 G9] 예측 id 0이 합성 id로 무성 치환되면 원본 추적성이 끊긴다 — str "0"으로 보존.
+    flags = load_pred_flags_data(
+        [{"id": 0, "type": "모순", "statements": [{"speaker": "p2", "quote": "x"}]}])
+    assert flags[0].flag_id == "0"
+
+
+def test_pred_missing_type_gets_sentinel_not_str_none():
+    # [리뷰4 G8] type 키 부재는 str(None)이 지어낸 "None"이 아니라 명시적 센티널로 강등 —
+    # 실제로 "None"을 출력한 예측과 리포트에서 구분돼야 한다.
+    flags = load_pred_flags_data(
+        [{"id": "p1", "statements": [{"speaker": "p2", "quote": "x"}]}])
+    assert flags[0].type == "(type 누락)"
+
+
+def test_golden_null_text_is_clean_error():
+    # [리뷰4 G10] 골든 text:null은 TypeError 트레이스백이 아니라 클린 ValueError(CLI rc=2 경로).
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [
+            {"id": "s1", "speaker": "p1", "text": None}], "flags": []})
+
+
+def test_golden_null_containers_are_clean_error():
+    # [리뷰4 G10] transcript/flags:null도 'NoneType 순회' TypeError가 아니라 클린 ValueError.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": None, "flags": []})
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": None})
+
+
+def test_golden_nondict_toplevel_is_clean_error():
+    # [리뷰4 S1] 골든 자리에 bare-list(예측 파일 스왑 실수)가 오면 AttributeError가 아니라
+    # 디스크립티브 ValueError.
+    with pytest.raises(ValueError):
+        meeting_from_data([{"id": "s1"}])
+
+
+def test_pred_all_nondict_elements_is_clean_error():
+    # [리뷰4 G14] 원소 전량이 비-dict(마크다운 문자열 배열 등)면 '예측 0건'으로 무성 통과가
+    # 아니라 클린 에러 — 전량 파싱 실패 run이 정상 리포트로 둔갑하면 벤치 비교가 오염된다.
+    with pytest.raises(ValueError):
+        load_pred_flags_data(["1. 모순: ...", "2. 번복: ..."])
+    assert load_pred_flags_data([]) == []               # 진짜 0건 감지 run은 계속 유효
+
+
+def test_pred_speaker_is_nfc_normalized():
+    # [리뷰4 G12] speaker만 NFC를 우회하면 NFD 화자명 힌트가 무성으로 불발된다.
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", "김대표")
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "모순",
+          "statements": [{"speaker": nfd, "quote": "x"}]}])
+    assert flags[0].statements[0].speaker == "김대표"
+
+
+def test_golden_nonstring_metadata_raises_pred_degrades():
+    # [리뷰4 K7] severity/title 등 메타 문자열 필드 — 골든 비문자열은 엄격 거부, 예측은 기본값 강등.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순", "severity": 123,
+             "statements": [{"speaker": "p1", "quote": "x"}]}]})
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "모순", "severity": 123, "title": None,
+          "statements": [{"speaker": "p2", "quote": "x"}]}])
+    assert flags[0].severity == "medium" and flags[0].title == ""
+
+
+def test_golden_fuzzy_quote_near_boundary_still_validates():
+    # [리뷰4 G7a] 인용이 경계를 살짝 넘는(tier-2 퍼지) 골든이 span 확장 탓에 이웃 세그먼트
+    # 역참조를 요구받아 오거부되면 안 된다 — 골든 grounding은 단일 세그먼트(main 의미론).
+    m = meeting_from_data({
+        "meta": {},
+        "transcript": [
+            {"id": "s5", "speaker": "p1", "text": "예산 초과 문제 우리가", "start_sec": 100,
+             "flags": ["f1"]},
+            {"id": "s6", "speaker": "p1", "text": "다시 검토합시다", "start_sec": 110},
+        ],
+        "flags": [
+            {"id": "f1", "type": "미해결",
+             "statements": [{"speaker": "p1", "quote": "예산 초과 문제 우리가 다시",
+                             "time_sec": 100}]},
+        ],
+    })
+    assert validate_golden(m) is True
