@@ -33,6 +33,9 @@ def ground_quote(quote: str, transcript: list) -> str | None:
     qn = _nfc(quote).strip()
     if not qn:
         return None
+    qtok = _tokens(quote)
+    if not qtok:            # 구두점뿐인 절삭 인용('...') — substring으로 아무 세그먼트에나 붙는 것 차단
+        return None
     # (a) 완전일치 — 인용이 세그먼트 텍스트 전체와 같으면 가장 강한 신호.
     for seg in transcript:
         if qn == _nfc(seg.text).strip():
@@ -49,9 +52,6 @@ def ground_quote(quote: str, transcript: list) -> str | None:
     if best_sub is not None:
         return best_sub
     # (c) 토큰 Jaccard 폴백 — 경미한 절삭/의역.
-    qtok = _tokens(quote)
-    if not qtok:
-        return None
     best_id, best_j = None, 0.0
     for seg in transcript:
         stok = _tokens(seg.text)

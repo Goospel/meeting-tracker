@@ -51,7 +51,14 @@ def format_report(golden_meeting: dict, score: DetectionScore) -> str:
         lines.append("- 없음")
     else:
         for fp in score.false_positives:
-            why = "할루시 인용(전사에 없음)" if fp.reason == "ungrounded" else "골든에 대응 없음"
+            if fp.reason == "ungrounded":
+                why = "할루시 인용(전사에 없음)"
+            elif fp.reason == "no_evidence":
+                why = "근거 인용 없음(statements 비어있음)"
+            elif fp.type_confused:
+                why = "라벨 오분류(흐름단절은 잡음 — 아래 🔵 타입 혼동 참조)"
+            else:
+                why = "골든에 대응 없음"
             seg = f" @ {', '.join(fp.segments)}" if fp.segments else ""
             lines.append(f"- `{_safe(fp.flag_id)}` [{_safe(fp.type)}] — {why}{seg}")
     lines.append("")
@@ -71,6 +78,15 @@ def format_report(golden_meeting: dict, score: DetectionScore) -> str:
             lines.append(
                 f"- `{_safe(tc.golden_flag_id)}`(골든 {_safe(tc.golden_type)}) ↔ "
                 f"`{_safe(tc.pred_flag_id)}`(예측 {_safe(tc.pred_type)}) @ {', '.join(tc.segments)}"
+            )
+        lines.append("")
+
+    if score.tainted_matches:
+        lines.append("## 🟠 정타 속 할루시 인용 (매칭은 됐지만 일부 인용이 전사에 없음)")
+        for tm in score.tainted_matches:
+            quotes = " · ".join(f"“{_safe(q)}”" for q in tm.ungrounded_quotes)
+            lines.append(
+                f"- `{_safe(tm.pred_flag_id)}` (골든 `{_safe(tm.golden_flag_id)}` 정타) — {quotes}"
             )
         lines.append("")
 

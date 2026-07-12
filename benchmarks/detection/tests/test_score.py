@@ -85,14 +85,40 @@ def test_contaminated_miss_marks_type_confusion():
     assert misses["f3"].type_confused is False       # 순수 놓침
 
 
-# ── 결정성: 같은 입력 두 번 → 같은 결과 ────────────────────────────────────
+# ── 결정성: 입력 순서에 불변 ───────────────────────────────────────────────
+# (같은 프로세스 이중 호출 비교는 동어반복이라 못 잡는다 — 순서 순열로 검증. [리뷰2])
 
-def test_scoring_is_deterministic():
+def _signature(s):
+    return (
+        (s.overall.tp, s.overall.fp, s.overall.fn),
+        set(s.matches),
+        {m.flag_id for m in s.misses},
+        {(fp.flag_id, fp.reason) for fp in s.false_positives},
+    )
+
+
+def test_scoring_invariant_under_pred_file_order():
     g, p = _golden(), load_pred_flags(CONTAMINATED)
-    a = score_detection(g, p)
-    b = score_detection(g, p)
-    assert (a.overall.tp, a.overall.fp, a.overall.fn) == (b.overall.tp, b.overall.fp, b.overall.fn)
-    assert [m.flag_id for m in a.misses] == [m.flag_id for m in b.misses]
+    assert _signature(score_detection(g, p)) == _signature(score_detection(g, list(reversed(p))))
+
+
+def test_jaccard_tie_break_is_order_independent():
+    # [리뷰2]: Jaccard 동점 타이브레이크가 리스트 인덱스면 예측 파일 순서가 F1을 바꾼다
+    # (0.5 vs 1.0 재현) → 내용(id) 기준이어야 한다.
+    tx = [TranscriptSegment("s1", "p1", "첫째 안건 발언입니다"),
+          TranscriptSegment("s2", "p2", "둘째 안건 발언입니다"),
+          TranscriptSegment("s3", "p3", "셋째 안건 발언입니다")]
+    golds = [
+        FlowFlag("g0", FlagType.CONTRADICTION,
+                 [Statement("p1", "첫째 안건 발언입니다"), Statement("p2", "둘째 안건 발언입니다")]),
+        FlowFlag("g1", FlagType.CONTRADICTION,
+                 [Statement("p1", "첫째 안건 발언입니다"), Statement("p3", "셋째 안건 발언입니다")]),
+    ]
+    meeting = {"meta": {}, "transcript": tx, "flags": golds}
+    pa = FlowFlag("pa", FlagType.CONTRADICTION, [Statement("p1", "첫째 안건 발언입니다")])
+    pb = FlowFlag("pb", FlagType.CONTRADICTION, [Statement("p2", "둘째 안건 발언입니다")])
+    assert _signature(score_detection(meeting, [pa, pb])) == \
+        _signature(score_detection(meeting, [pb, pa]))
 
 
 # ── 리뷰 회귀 ──────────────────────────────────────────────────────────────
@@ -155,3 +181,47 @@ def test_duplicate_pred_id_does_not_corrupt_fp_meta():
     s = score_detection(golden, preds)
     ung = [fp for fp in s.false_positives if fp.reason == "ungrounded"]
     assert any("유령 A" in q for fp in ung for q in fp.ungrounded_quotes)
+
+
+# ── 리뷰2 회귀: 정타 속 할루시 인용 · 무근거 예측 · FP 타입혼동 표시 ────────
+
+def test_matched_pred_with_hallucinated_quote_is_surfaced():
+    # [리뷰2]: 매칭(TP)된 예측 안의 할루시 인용이 지표 어디에도 안 드러나면
+    # README의 '할루시 방어' 주장이 절반만 지어낸 flag에 뚫린다.
+    tx = [TranscriptSegment("s1", "p1", "실제 첫째 발언입니다"),
+          TranscriptSegment("s2", "p2", "실제 둘째 발언입니다")]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.CONTRADICTION,
+                                 [Statement("p1", "실제 첫째 발언입니다"),
+                                  Statement("p2", "실제 둘째 발언입니다")])]}
+    pred = FlowFlag("p", FlagType.CONTRADICTION,
+                    [Statement("p1", "실제 첫째 발언입니다"),
+                     Statement("p9", "완전 조작 유령 인용")])       # J=1/2 → 매칭은 됨
+    s = score_detection(golden, [pred])
+    assert s.overall.tp == 1                                       # 매칭 자체는 유지
+    assert len(s.tainted_matches) == 1
+    tm = s.tainted_matches[0]
+    assert tm.pred_flag_id == "p" and tm.golden_flag_id == "g"
+    assert any("유령" in q for q in tm.ungrounded_quotes)
+
+
+def test_pred_with_no_statements_is_not_labeled_hallucination():
+    # [리뷰2]: 인용이 아예 없는 예측은 '할루시 인용'(ungrounded)이 아니라
+    # 별도 reason(no_evidence)이어야 실패모드 통계가 오염되지 않는다.
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나")]
+    golden = {"meta": {}, "transcript": tx,
+              "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    s = score_detection(golden, [FlowFlag("empty", FlagType.CONTRADICTION, [])])
+    fp = {f.flag_id: f for f in s.false_positives}["empty"]
+    assert fp.reason == "no_evidence"
+    assert fp.ungrounded_quotes == ()
+
+
+def test_type_confused_fp_is_flagged():
+    # [리뷰2]: localization으로 매칭된(라벨만 틀린) FP는 '골든에 대응 없음'과
+    # 구분되도록 type_confused 표시를 가져야 리포트가 자기모순하지 않는다.
+    s = score_detection(_golden(), load_pred_flags(CONTAMINATED))
+    fps = {fp.flag_id: fp for fp in s.false_positives}
+    assert fps["c2"].type_confused is True          # f2(번복)를 모순으로 오분류
+    assert fps["spurious1"].type_confused is False  # 진짜 대응 없음
+    assert fps["hallu1"].type_confused is False

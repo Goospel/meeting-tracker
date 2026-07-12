@@ -49,9 +49,10 @@ class PRF:
 class FalsePositive:
     flag_id: str
     type: str
-    reason: str                 # "ungrounded"(할루시 인용) | "unmatched"(골든에 없음)
+    reason: str                 # "ungrounded"(할루시 인용) | "no_evidence"(인용 자체가 없음) | "unmatched"(골든에 없음)
     segments: tuple = ()
     ungrounded_quotes: tuple = ()
+    type_confused: bool = False  # localization으론 매칭됨(라벨만 틀림) — '대응 없음'과 구분
 
 
 @dataclass
@@ -72,6 +73,14 @@ class TypeConfusion:
 
 
 @dataclass
+class TaintedMatch:
+    """정타(TP)로 매칭됐지만 일부 인용이 전사에 없는 예측 — 할루시 근거가 조용히 묻히지 않게 분리."""
+    golden_flag_id: str
+    pred_flag_id: str
+    ungrounded_quotes: tuple = ()
+
+
+@dataclass
 class DetectionScore:
     per_type: dict
     overall: PRF
@@ -80,6 +89,7 @@ class DetectionScore:
     false_positives: list = field(default_factory=list)
     misses: list = field(default_factory=list)
     type_confusions: list = field(default_factory=list)
+    tainted_matches: list = field(default_factory=list)  # TP인데 할루시 인용 포함
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
@@ -91,7 +101,9 @@ def _greedy_match(golds: list, preds: list, *, same_type: bool, thresh: float,
                   exclude_g: frozenset = frozenset(), exclude_p: frozenset = frozenset()):
     """(golds, preds) 각 원소 = (id, type, segs, ...). → 매칭된 (gi, pi) 인덱스 쌍 목록.
 
-    후보 쌍을 Jaccard 내림차순(동점은 인덱스순)으로 정렬해 결정적으로 1:1 배정.
+    후보 쌍을 Jaccard 내림차순으로 정렬해 결정적으로 1:1 배정. 동점은 인덱스가 아니라
+    **내용(골든 id → 예측 id → 예측 type/세그먼트집합)** 기준 — 예측 파일 내 flag 순서가
+    바뀌어도 같은 점수가 나온다(인덱스 타이브레이크는 순서에 따라 F1이 갈렸음).
     exclude_g/exclude_p로 이미 배정된 인덱스를 후보에서 제외(localization을 strict 확장으로
     쌓을 때 사용).
     """
@@ -107,7 +119,13 @@ def _greedy_match(golds: list, preds: list, *, same_type: bool, thresh: float,
             j = _jaccard(gs, ps)
             if j >= thresh:
                 pairs.append((j, gi, pi))
-    pairs.sort(key=lambda x: (-x[0], x[1], x[2]))
+
+    def _key(item):                                  # 완전 동일 내용끼리만 인덱스 폴백(점수 불변)
+        j, gi, pi = item
+        return (-j, str(golds[gi][0]), str(preds[pi][0]), str(preds[pi][1]),
+                tuple(sorted(map(str, preds[pi][2]))), gi, pi)
+
+    pairs.sort(key=_key)
     used_g, used_p, matched = set(), set(), []
     for _, gi, pi in pairs:
         if gi in used_g or pi in used_p:
@@ -141,6 +159,9 @@ def score_detection(golden_meeting: dict, pred_flags: list, *,
     matched_g = {gi for gi, _ in strict}
     matched_p = {pi for _, pi in strict}
     matches = [(golds[gi][0], preds[pi][0]) for gi, pi in strict]
+    # 정타지만 일부 인용이 할루시인 예측 — 매칭됐다고 조작 근거가 묻히면 안 된다.
+    tainted_matches = [TaintedMatch(golds[gi][0], preds[pi][0], preds[pi][3])
+                       for gi, pi in strict if preds[pi][3]]
 
     # 2) localization = strict 확장 — 남은 것끼리만 type-무관 매칭을 얹는다.
     #    (같은 type 남은 쌍은 strict에서 이미 매칭됐을 것이므로 여기 추가분은 전부 type 불일치.)
@@ -153,10 +174,11 @@ def score_detection(golden_meeting: dict, pred_flags: list, *,
                        fn=len(golds) - len(loc_matched_g))
 
     # type_confusion = 확장분(strict 정타는 애초에 제외됨) 중 type 불일치.
-    type_confusions, confused_g = [], set()
+    type_confusions, confused_g, confused_p = [], set(), set()
     for gi, pi in extra:
         if golds[gi][1] != preds[pi][1]:
             confused_g.add(gi)
+            confused_p.add(pi)
             type_confusions.append(TypeConfusion(
                 golden_flag_id=golds[gi][0], pred_flag_id=preds[pi][0],
                 golden_type=golds[gi][1], pred_type=preds[pi][1],
@@ -188,14 +210,20 @@ def score_detection(golden_meeting: dict, pred_flags: list, *,
     for pi, (pid, pt, ps, ung) in enumerate(preds):
         if pi in matched_p:
             continue
+        if not ps:
+            # 인용이 있었는데 전부 전사에 없음(할루시) vs 인용 자체가 없음(무근거) 분리
+            reason = "ungrounded" if ung else "no_evidence"
+        else:
+            reason = "unmatched"
         false_positives.append(FalsePositive(
-            flag_id=pid, type=pt,
-            reason="ungrounded" if not ps else "unmatched",
+            flag_id=pid, type=pt, reason=reason,
             segments=tuple(sorted(ps)), ungrounded_quotes=ung,
+            type_confused=(pi in confused_p),
         ))
 
     return DetectionScore(
         per_type=per_type, overall=overall, localization=localization,
         matches=matches, false_positives=false_positives,
         misses=misses, type_confusions=type_confusions,
+        tainted_matches=tainted_matches,
     )

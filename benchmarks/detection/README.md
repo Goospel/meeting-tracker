@@ -21,9 +21,9 @@
 
 | 결과 | 뜻 | 제품 의미 |
 |---|---|---|
-| 매칭 | TP | 정타 |
+| 매칭 | TP | 정타 (일부 인용이 할루시면 🟠 `tainted_matches`로 별도 노출) |
 | 미매칭 골든 | FN | **놓친 모순** |
-| 미매칭 예측 | FP | **가짜 모순** (할루시 인용 / 골든에 없음 분리) |
+| 미매칭 예측 | FP | **가짜 모순** (할루시 인용 / 근거 인용 없음 / 골든에 없음 3분리) |
 
 **quote grounding**은 이중 역할: ① Claude가 지어낸 인용(전사에 없음)을 잡아 드롭 ②
 인용이 가리키는 세그먼트를 해소해 매칭 키로 사용. **type-무관 localization**을 따로 매겨,
@@ -41,7 +41,7 @@ fixtures/
   golden/luma_meeting.json          골든 회의 1건 (전사 25세그 + flag 4종) — docs/data-schema.json 재사용
   pred/luma_meeting.faithful.json   mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
   pred/luma_meeting.contaminated.json  mock 예측: 4가지 실패모드 심음
-tests/          38개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트 + 적대적 리뷰 회귀)
+tests/          46개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트 + 적대적 리뷰 1·2차 회귀)
 ```
 
 ## 실행

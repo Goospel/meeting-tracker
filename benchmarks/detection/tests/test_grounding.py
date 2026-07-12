@@ -60,3 +60,14 @@ def test_ground_prefers_tightest_substring():
         TranscriptSegment("s2", "p2", "예산 얘기 상한선"),
     ]
     assert ground_quote("예산 얘기", tx) == "s2"
+
+
+# ── 리뷰2 회귀: 절삭 인용 가드 ─────────────────────────────────────────────
+
+def test_punctuation_only_quote_is_ungrounded():
+    # [리뷰2]: 구두점뿐인 절삭 인용('...', '.', '?')이 substring으로 아무 세그먼트에나
+    # grounding되면 예측 segset을 오염시켜 정타를 FP+FN으로 뒤집는다 → None이어야 한다.
+    tx = [TranscriptSegment("s1", "p1", "예산은... 일단 보류합시다. 어떨까요?")]
+    assert ground_quote("...", tx) is None
+    assert ground_quote(".", tx) is None
+    assert ground_quote("?", tx) is None

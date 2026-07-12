@@ -59,3 +59,44 @@ def test_cli_rejects_missing_key_pred(tmp_path):
                               ensure_ascii=False), encoding="utf-8")
     rc = main(["--golden", str(GOLDEN), "--pred", str(bad)])
     assert rc == 2
+
+
+# ── 리뷰2 회귀: FP 표기 일관성 · 정타 속 할루시 섹션 ───────────────────────
+
+def test_report_distinguishes_type_confused_fp():
+    # [리뷰2]: 타입혼동 FP(c2)가 '골든에 대응 없음'으로 표기되면 같은 리포트의
+    # 🔵 타입 혼동 섹션(f2↔c2 대응 명시)과 자기모순 → 라벨 오분류로 안내해야 한다.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment  # noqa: F401
+    g = load_meeting(GOLDEN)
+    md = format_report(g, score_detection(g, load_pred_flags(CONTAMINATED)))
+    c2_line = next(l for l in md.splitlines() if l.startswith("- `c2`"))
+    assert "골든에 대응 없음" not in c2_line
+    assert "라벨" in c2_line
+
+
+def test_report_lists_tainted_match_quotes():
+    # [리뷰2]: 정타(TP) 예측 속 할루시 인용이 리포트에 드러나야 한다.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment
+    tx = [TranscriptSegment("s1", "p1", "실제 첫째 발언입니다"),
+          TranscriptSegment("s2", "p2", "실제 둘째 발언입니다")]
+    g = {"meta": {"title": "t"}, "transcript": tx,
+         "flags": [FlowFlag("g", FlagType.CONTRADICTION,
+                            [Statement("p1", "실제 첫째 발언입니다"),
+                             Statement("p2", "실제 둘째 발언입니다")])]}
+    pred = FlowFlag("p", FlagType.CONTRADICTION,
+                    [Statement("p1", "실제 첫째 발언입니다"),
+                     Statement("p9", "완전 조작 유령 인용")])
+    md = format_report(g, score_detection(g, [pred]))
+    assert "완전 조작 유령 인용" in md
+
+
+def test_report_no_evidence_fp_not_labeled_hallucination():
+    # [리뷰2]: statements 빈 예측은 '할루시 인용'이 아니라 '근거 인용 없음'으로.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나")]
+    g = {"meta": {}, "transcript": tx,
+         "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    md = format_report(g, score_detection(g, [FlowFlag("empty", FlagType.CONTRADICTION, [])]))
+    empty_line = next(l for l in md.splitlines() if l.startswith("- `empty`"))
+    assert "할루시" not in empty_line
+    assert "근거 인용 없음" in empty_line
