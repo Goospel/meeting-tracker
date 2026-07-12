@@ -52,11 +52,11 @@ def test_cli_rejects_malformed_golden(tmp_path):
     assert rc == 2
 
 
-def test_cli_rejects_missing_key_pred(tmp_path):
-    # [8]: 필수 키 누락(type 없음)은 KeyError 트레이스백이 아니라 클린 에러(return 2).
+def test_cli_rejects_unparseable_pred(tmp_path):
+    # 구조적으로 깨진 예측 파일(리스트도 {flags:[...]}도 아님)은 트레이스백이 아니라 클린 에러(return 2).
+    # (개별 flag의 id/type/quote 누락은 이제 per-flag 강등 — 배치를 죽이지 않는다.)
     bad = tmp_path / "bad_pred.json"
-    bad.write_text(json.dumps([{"id": "x", "statements": [{"speaker": "p1", "quote": "y"}]}],
-                              ensure_ascii=False), encoding="utf-8")
+    bad.write_text(json.dumps({"predictions": []}, ensure_ascii=False), encoding="utf-8")  # "flags" 키 없음
     rc = main(["--golden", str(GOLDEN), "--pred", str(bad)])
     assert rc == 2
 
@@ -100,3 +100,53 @@ def test_report_no_evidence_fp_not_labeled_hallucination():
     empty_line = next(l for l in md.splitlines() if l.startswith("- `empty`"))
     assert "할루시" not in empty_line
     assert "근거 인용 없음" in empty_line
+
+
+def test_report_escapes_pipe_in_unknown_type():
+    # [리뷰 sweep #1]: 강등된 미지 예측 type에 파이프(|)가 있으면 마크다운 표 열이 깨진다 → 이스케이프.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나")]
+    g = {"meta": {}, "transcript": tx,
+         "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    pred = FlowFlag("bad", "A|B|C", [Statement("p1", "실재하는 발언 하나")])   # 파이프 든 미지 type
+    md = format_report(g, score_detection(g, [pred]))
+    # 표의 모든 데이터 행은 헤더와 같은 열 수(파이프 개수)를 가져야 한다.
+    rows = [l for l in md.splitlines() if l.startswith("|") and "---" not in l]
+    header_pipes = rows[0].count("|")
+    assert all(r.count("|") == header_pipes for r in rows), "미지 type의 파이프가 표를 깨뜨림"
+
+
+def test_report_neutralizes_cr_in_unknown_type():
+    # [리뷰2 #4]: 미지 예측 type의 캐리지리턴(\r)도 CommonMark에서 줄바꿈이라 표 행을 쪼갠다 → 무력화.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나")]
+    g = {"meta": {}, "transcript": tx,
+         "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    pred = FlowFlag("bad", "모순\r번복", [Statement("p1", "실재하는 발언 하나")])
+    md = format_report(g, score_detection(g, [pred]))
+    assert "\r" not in md
+
+
+def test_report_neutralizes_html_in_unknown_type():
+    # [리뷰4 K9] 미지 예측 type의 raw HTML(<img onerror=...>)이 _safe를 통과하면 마크다운
+    # 뷰어에서 인라인 HTML로 렌더된다 — 엔티티로 무력화.
+    from detect_bench.labels import FlagType, FlowFlag, Statement, TranscriptSegment
+    tx = [TranscriptSegment("s1", "p1", "실재하는 발언 하나")]
+    g = {"meta": {}, "transcript": tx,
+         "flags": [FlowFlag("g", FlagType.UNRESOLVED, [Statement("p1", "실재하는 발언 하나")])]}
+    pred = FlowFlag("bad", '<img onerror="x">', [Statement("p1", "실재하는 발언 하나")])
+    md = format_report(g, score_detection(g, [pred]))
+    assert "<img" not in md
+    assert "&lt;img" in md
+
+
+def test_cli_rejects_null_text_golden(tmp_path):
+    # [리뷰4 G10 e2e] 골든 text:null은 트레이스백(exit 1)이 아니라 클린 에러 rc=2.
+    bad = tmp_path / "bad_golden.json"
+    bad.write_text(json.dumps(
+        {"transcript": [{"id": "s1", "speaker": "p1", "text": None}], "flags": []},
+        ensure_ascii=False), encoding="utf-8")
+    pred = tmp_path / "pred.json"
+    pred.write_text("[]", encoding="utf-8")
+    rc = main(["--golden", str(bad), "--pred", str(pred)])
+    assert rc == 2

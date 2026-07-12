@@ -92,6 +92,11 @@ class DetectionScore:
     tainted_matches: list = field(default_factory=list)  # TP인데 할루시 인용 포함
 
 
+def _tv(t) -> str:
+    """type 값 문자열 — 예측은 미지 라벨(원문 str)로 강등될 수 있어 .value 직접 접근 불가."""
+    return t.value if isinstance(t, FlagType) else str(t)
+
+
 def _jaccard(a: frozenset, b: frozenset) -> float:
     u = a | b
     return len(a & b) / len(u) if u else 0.0
@@ -142,17 +147,19 @@ def score_detection(golden_meeting: dict, pred_flags: list, *,
 
     golds = []
     for gf in golden_meeting["flags"]:
-        segs, _ = resolve_flag_segments(gf, transcript)
+        # 골든은 단일 세그먼트 grounding(span=False, validate_golden과 동일 의미론) — span 확장으로
+        # 골든 segset이 부풀면 핵심 세그먼트만 정확히 인용한 정탐이 Jaccard 문턱에서 FP+FN이 된다.
+        segs, _ = resolve_flag_segments(gf, transcript, span=False)
         if not segs:                                # grounding 0 → 조용한 FN 강등 대신 에러
             raise ValueError(
                 f"골든 flag {gf.flag_id}이 전사에 grounding되지 않음 — validate_golden을 먼저 통과시키세요"
             )
-        golds.append((gf.flag_id, gf.type.value, segs))
+        golds.append((gf.flag_id, _tv(gf.type), segs))
 
     preds = []                                      # (id, type, segs, ungrounded) — 인덱스로만 참조(중복 id 안전)
     for pf in pred_flags:
         segs, ungrounded = resolve_flag_segments(pf, transcript)
-        preds.append((pf.flag_id, pf.type.value, segs, tuple(ungrounded)))
+        preds.append((pf.flag_id, _tv(pf.type), segs, tuple(ungrounded)))
 
     # 1) type-strict 그리디 → 정타(TP) 고정.
     strict = _greedy_match(golds, preds, same_type=True, thresh=match_threshold)
@@ -194,7 +201,7 @@ def score_detection(golden_meeting: dict, pred_flags: list, *,
             per_type[gt].fn += 1
     for pi, (_, pt, _, _) in enumerate(preds):
         if pi not in matched_p:
-            per_type[pt].fp += 1
+            per_type.setdefault(pt, PRF()).fp += 1     # 미지 예측 type도 별도 행으로 집계(overall 누락 방지)
 
     overall = PRF(
         tp=sum(v.tp for v in per_type.values()),
