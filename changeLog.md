@@ -12,7 +12,17 @@
 
 ## 2026-07-12
 
-### feat · Track A 렌더 레이어 + 마크업 문법 확장 (이 PR)
+### feat · 2단계 감지 품질 채점 하네스 — Claude 흐름/모순 감지 vs 골든 라벨 (이 PR)
+- 새 벤치마크 패키지 `benchmarks/detection/`(stt와 형제, **런타임 의존성 0**): 완벽한 전사본을 줬을 때 Claude가 흐름단절 4종(모순/번복/미해결/재논의)을 얼마나 맞히는지 per-type P/R/F1로 잰다. 1단계 CTER의 "가짜/놓친 분리" 철학을 감지층에 적용.
+- `labels.py`: 골든/예측 데이터 모델 + 로더 + **양방향 일관성 게이트**(전사 세그먼트가 flag을 역참조 ↔ flag 인용이 그 세그먼트에 grounding — stage-1 오프셋 불변식에 대응하는 무드리프트 방지). 골든 = `docs/data-schema.json`의 완성 회의 1건 재사용(전사 25세그·flag 4).
+- `grounding.py`: quote grounding **이중 역할** — ① 할루시 인용(전사에 없음) 드롭 ② 인용→세그먼트 해소로 매칭 키 제공. NFC 부분일치 + 토큰 Jaccard≥0.6 폴백.
+- `score.py`: 객체탐지식 **그리디 매칭**(같은 type + 세그먼트집합 Jaccard≥0.5로 1:1). 매칭=TP / 미매칭 골든=**놓친(FN)** / 미매칭 예측=**가짜(FP)**. FP를 ungrounded(할루시)/unmatched(골든에 없음)로 분리. **type-무관 localization** 이중 채점으로 라벨만 틀린 경우(type_confusion, 모순↔번복 혼동)를 분리 노출.
+- `report.py` + CLI: 회의 단위 마크다운(유형별 표 + 가짜/놓친/타입혼동 목록). T-027 stdout/stderr utf-8, malformed 골든 조기 차단(return 2).
+- **mock 예측 픽스처**로 크레덴셜 없이 채점기 자체를 end-to-end 검증: `faithful`→완벽(P=R=1), `contaminated`→4실패모드(정타·타입혼동·누락·할루시)를 정확히 분리 집계(종합 P0.40/R0.50, localization R0.75로 "찾았으나 라벨 틀림" 드러남).
+- **적대적 코드리뷰 반영**(38에이전트 find→verify→sweep, 25 confirmed): 채점 로직 결함 다수 수정 — ① **localization을 strict의 독립 그리디→strict 확장으로 재구성**(겹치는 세그먼트집합에서 localization TP<strict TP가 되던 논리 모순 + strict 정타 골든이 타입혼동에 이중계상되던 것 원천 차단, altitude 수정) ② `ground_quote` **완전일치 우선→최밀착 substring**(첫 substring 오귀속 제거) ③ 검증 게이트에 **역방향(orphan back-ref)** + segment_id 유일성 ④ score가 grounding 안 되는 골든 flag를 조용히 FN 강등→에러 ⑤ `pred_meta` 인덱스화(중복 예측 id 충돌 제거) ⑥ CLI KeyError 클린 처리 ⑦ 리포트 flag_id 이스케이프 ⑧ 죽은 `Statement.segment_id` 제거. 회귀 9종 추가.
+- **TDD** Red→Green, **38테스트**. **왜**: STT(1단계) 위층인 "감지 품질"을 크레덴셜 없이 측정 가능한 형태로 확정 — 실제 Claude 출력을 넣기 전에 채점기가 가짜/놓친을 옳게 가르는지부터 검증.
+
+### feat · Track A 렌더 레이어 + 마크업 문법 확장 ([PR #8](https://github.com/Goospel/meeting-tracker/pull/8))
 - **렌더 레이어** `stt_bench/render.py` 신설: `TtsPort` 프로토콜 + 크레덴셜-불요 `ToneTtsPort`(stdlib `wave`만, 화자별 사인 톤) + `render_clip`(매니페스트→WAV 타임라인 + 실제 렌더 시각 리포트) + `get_port` 팩토리. **런타임 의존성 0 불변식**이라 Azure/Google 뉴럴 TTS SDK는 코어에 싣지 않고 `get_port`가 `TtsCredentialError`로 막는 **확장점**만 둔다(크레덴셜 오면 포트만 스왑). `naver`는 벤더 음향 prior 편향으로 애초에 거부(벤치에 클로바 포함).
 - **마크업 문법 확장** `synth.py`: `_parse_fields` 신설로 PROPER_NOUN `aliases=`(축약 허용목록)·`manual`(파서 미파생 canonical opt-out→채점기 ambiguous)·`canonical=`(manual 라벨) 지원. 채점기·검증기(`score.py`/`golden.py`)는 이미 aliases/flags.manual을 소비 → **마크업 방출만** 확장. 하위호환(`surface|TYPE|key`) 유지. 대표 fixture 루미에 `aliases=Lumi,루미에` 실어 실증.
 - **적대적 코드리뷰 반영**(36에이전트 find→verify→sweep, 27후보 25 confirmed): 무성 실패·크래시 **11종 수정** — ① amplitude>1 int16 포화 OverflowError ② 빈 `aliases=`/`key=` 무성 무력화 ③ `aliases`+`manual` 죽은 별칭 ④ 무명 key + `key=` 이중 지정 ⑤ `--report-out` 부모 미생성 부분산출 크래시 ⑥ `render_clip` ValueError 미포착 ⑦ `gap_sec` 음수 모호 에러 ⑧ 커스텀 포트 `sample_rate=0` ZeroDivision ⑨ `synth.main` stderr utf-8 누락(T-027) ⑩ 빈 surface 게이트 통과 ⑪ 비-list 매니페스트. 보류 4종은 설계상 정당/사전존재(plan 기록).
