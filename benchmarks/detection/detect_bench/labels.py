@@ -218,6 +218,9 @@ def meeting_from_data(data: dict) -> dict:
     """
     if not isinstance(data, dict):
         raise ValueError(f"골든이 dict(JSON 오브젝트)가 아님: {type(data).__name__}")
+    meta = data.get("meta", {})
+    if not isinstance(meta, dict):                     # 비-dict meta → 소비자(meta.get)가 AttributeError.
+        raise ValueError(f"meta가 오브젝트가 아님 (malformed 골든): {type(meta).__name__}")
     transcript = data.get("transcript", [])
     if not isinstance(transcript, list):
         raise ValueError(f"transcript가 리스트가 아님 (malformed 골든): {type(transcript).__name__}")
@@ -225,7 +228,7 @@ def meeting_from_data(data: dict) -> dict:
     if not isinstance(flags, list):
         raise ValueError(f"flags가 리스트가 아님 (malformed 골든): {type(flags).__name__}")
     return {
-        "meta": data.get("meta", {}),
+        "meta": meta,
         "transcript": [_segment_from_data(s) for s in transcript],
         "flags": [flag_from_data(f) for f in flags],
         "raw": data,
@@ -236,19 +239,34 @@ def load_meeting(path: str | Path) -> dict:
     return meeting_from_data(json.loads(Path(path).read_text(encoding="utf-8-sig")))
 
 
-def load_pred_flags(path: str | Path) -> list:
-    """예측 flag 로더 — 리스트 또는 {"flags":[...]} 둘 다 허용(Claude 출력 형태 유연)."""
-    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+def coerce_pred_container(data) -> list:
+    """예측 raw(JSON 파싱값) → flag dict 리스트. 리스트 또는 {"flags":[...]} 둘 다 허용.
+
+    감지 어댑터(detect.parse_detection_response)와 파일 로더(load_pred_flags)가 **같은**
+    컨테이너 규칙을 쓰도록 분리. 구조적 오류(flags 부재/null/비-list)는 클린 에러."""
     items = data.get("flags") if isinstance(data, dict) else data   # 키 부재도 None→클린 에러(subscript X)
     if not isinstance(items, list):                   # 구조적 오류(flags 부재/null/비-list)는 클린 에러
         raise ValueError("예측이 리스트 또는 {flags:[...]} 형태가 아님")
-    # 예측은 변형 라벨/누락 키 per-flag 강등(배치 안 죽게). 비-dict flag는 건너뛰고, id 없으면 표시용 합성 id.
+    return items
+
+
+def pred_flags_from_items(items: list) -> list:
+    """flag dict 리스트 → FlowFlag 리스트(예측 강등 규칙). 파일/어댑터 공용 진입점.
+
+    예측은 변형 라벨/누락 키 per-flag 강등(배치 안 죽게). 비-dict flag는 건너뛰고, id 없으면
+    표시용 합성 id. 전량 비-dict(전량 파싱 불가)는 '0건 감지'와 구분해 클린 에러."""
     out = [flag_from_data(f, strict=False, fallback_id=f"pred{i}")
            for i, f in enumerate(items) if isinstance(f, dict)]
     if items and not out:                             # 전량 비-dict = 구조적 오류(전량 파싱 불가) —
         raise ValueError(                             # '예측 0건'으로 무성 통과하면 벤치 비교가 오염된다
             "예측 flag 원소가 전부 dict가 아님 — 전량 파싱 불가 (0건 감지와 구분)")
     return out
+
+
+def load_pred_flags(path: str | Path) -> list:
+    """예측 flag 로더 — 리스트 또는 {"flags":[...]} 둘 다 허용(Claude 출력 형태 유연)."""
+    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    return pred_flags_from_items(coerce_pred_container(data))
 
 
 def validate_golden(meeting: dict) -> bool:

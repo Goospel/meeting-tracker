@@ -329,6 +329,15 @@ def test_golden_nondict_toplevel_is_clean_error():
         meeting_from_data([{"id": "s1"}])
 
 
+def test_golden_nondict_meta_is_clean_error():
+    # [어댑터리뷰] meta가 dict가 아니면(문자열/리스트) 소비자(build_detection_prompt·report의
+    # meta.get)가 AttributeError로 터진다 — source에서 클린 ValueError로 막는다(transcript/flags와 대칭).
+    with pytest.raises(ValueError):
+        meeting_from_data({"meta": "루미 회의", "transcript": [], "flags": []})
+    with pytest.raises(ValueError):
+        meeting_from_data({"meta": ["x"], "transcript": [], "flags": []})
+
+
 def test_pred_all_nondict_elements_is_clean_error():
     # [리뷰4 G14] 원소 전량이 비-dict(마크다운 문자열 배열 등)면 '예측 0건'으로 무성 통과가
     # 아니라 클린 에러 — 전량 파싱 실패 run이 정상 리포트로 둔갑하면 벤치 비교가 오염된다.
