@@ -45,7 +45,7 @@ fixtures/
   pred/*.faithful.json              mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
   pred/*.contaminated.json          mock 예측: 실패모드 심음 (오타입·할루시·놓친·tainted)
   response/*.claude.txt             캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
-tests/          191개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스 + 적대적 리뷰 회귀)
+tests/          195개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스 + 적대적 리뷰 회귀)
 ```
 
 ## 감지 어댑터 (전사 → pred JSON)

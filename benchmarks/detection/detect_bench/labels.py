@@ -118,7 +118,10 @@ def _coerce_pred_time(v):
                 f = float(s)                          # '760'·'760.0'
             except ValueError:
                 parts = s.split(":")                  # 'MM:SS'·'HH:MM:SS' → 경과 초
-                if 2 <= len(parts) <= 3 and all(p.strip().isdigit() for p in parts):
+                # isdecimal(Nd 카테고리)은 int() 수용집합의 부분집합 — isdigit은 아니다(위첨자 ²·
+                # 아래첨자 ₂·원문자 ⑨가 isdigit True지만 int() 거부). isdigit로 가드하면 그런 값에서
+                # int()가 uncaught ValueError로 배치를 죽인다(T-035). isdecimal은 int() 무예외 보장.
+                if 2 <= len(parts) <= 3 and all(p.strip().isdecimal() for p in parts):
                     f = 0.0
                     for p in parts:
                         f = f * 60 + int(p)

@@ -204,7 +204,11 @@ def test_contaminated_scoring_invariant_under_pred_order():
     b = score_detection(g, list(reversed(p)))
     assert (a.overall.tp, a.overall.fp, a.overall.fn) == (b.overall.tp, b.overall.fp, b.overall.fn)
     assert {m.flag_id for m in a.misses} == {m.flag_id for m in b.misses}
-    assert len(a.type_confusions) == len(b.type_confusions)
+    # 개수뿐 아니라 (골든,예측) 쌍 자체가 순서 불변이어야 한다 — 같은 개수·다른 쌍을 내는
+    # 순서 의존 버그를 개수 비교는 못 잡는다.
+    def _tc_pairs(s):
+        return {(tc.golden_flag_id, tc.pred_flag_id) for tc in s.type_confusions}
+    assert _tc_pairs(a) == _tc_pairs(b)
 
 
 # ── 어댑터 관통: 리플레이 포트로 전사→프롬프트→파싱→pred→채점 (크레덴셜 0) ──
@@ -221,7 +225,9 @@ def test_prompt_does_not_leak_golden_labels():
 def test_replay_fixture_grounds_and_scores_perfect():
     # 고아 방지 + 하드 골든을 어댑터 실경로로 관통 — 골든/응답 drift를 잡는다.
     # [리뷰9] recall뿐 아니라 precision도 만점임을 고정(가짜/타입혼동 flag가 섞여도 잡히게).
-    resp = RESPONSE.read_text(encoding="utf-8")
+    # 프로덕션(detect.main)·다른 픽스처 읽기와 동일하게 utf-8-sig — 픽스처가 BOM 포함으로
+    # 재저장돼도 실경로와 같은 입력(선행 U+FEFF 제거)을 먹도록 정렬.
+    resp = RESPONSE.read_text(encoding="utf-8-sig")
     m = _g()
     pred = run_detection(m, ReplayDetectorPort(resp))
     s = score_detection(m, pred)
@@ -250,6 +256,10 @@ def test_same_type_greedy_matching_is_1to1_and_order_invariant():
     s = score_detection(m, pred_flags_from_items([mk("pA"), mk("pB")]))
     assert s.per_type["모순"].tp == 2 and s.per_type["모순"].fn == 0   # 두 모순 골든 다 매칭
     assert {"f1", "f3"} <= {g for g, _ in s.matches}
+    # 1:1의 핵심은 예측측 소비다 — used_p 가드가 없으면 한 예측이 f1·f3를 동시에 물고 나머지
+    # 예측이 dangling FP로 남는다. 골든측(tp/fn/matches)만 보면 그 회귀를 놓치므로 예측측을 고정.
+    assert {"pA", "pB"} == {p for _, p in s.matches}   # 두 예측이 각각 정확히 한 골든에 배정
+    assert s.overall.fp == 0                            # 예측 재사용 없음 → 남는 가짜 0
     s2 = score_detection(m, pred_flags_from_items([mk("pB"), mk("pA")]))
     assert set(s.matches) == set(s2.matches)               # 순서 뒤집어도 내용 기준 동일 매칭
 

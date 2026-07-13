@@ -106,6 +106,15 @@
 
 ---
 
+### T-035 · `str.isdigit()`로 `int()`를 가드하면 십진 외 유니코드 숫자(위첨자·아래첨자·원문자)에서 uncaught ValueError
+
+- **증상**: 예측 관용 파싱(`_coerce_pred_time`, T-034 산물)의 `MM:SS` 분기가 `all(p.strip().isdigit())`로 가드된 뒤 `int(p)`를 부른다. `time_sec`이 `"12:3²"`·`"₂:30"`·`"8:⑨"`처럼 십진 외 유니코드 숫자를 품으면 `isdigit()`는 True를 주지만 `int()`는 `ValueError: invalid literal for int()`. 이 `int()`가 바깥 `except ValueError`를 처리하는 도중 감싸이지 않은 채 실행돼, 던진 예외가 `_statement_from_data → _statements_from_data → flag_from_data → pred_flags_from_items`로 전파돼 **예측 배치(채점 run) 전체가 죽는다**. "예측은 per-flag 강등, 배치 안 죽게"라는 모듈 불변식 위반이자, diff 이전엔 문자열 time이 그대로 통과해 `grounding._num`이 None으로 강등하던 **안전 입력의 크래시 회귀**. 코드리뷰(xhigh) 스크립트 재현으로 잡았다.
+- **원인**: `str.isdigit()`의 도메인은 `int()`보다 넓다 — 위첨자 `²³¹`·아래첨자 `₀-₉`·원문자 `①⑨`는 `isdigit()` True지만 `int()` 거부(전각 `５`·아랍 `٤`는 `int()`가 처리해 크래시 안 남). 사전검사로 `int()`의 수용집합을 흉내내려는 시도 자체가 근본적으로 취약(도메인 드리프트).
+- **해결**: 가드를 `isdecimal()`로 교체 — `isdecimal()`은 Nd(십진) 카테고리로 **`int()` 수용집합의 부분집합**이라 이 사유의 `int()` 예외를 원천 차단한다. 크래시하던 입력만 None으로 강등되고(안전 폴백), 기존 동작은 정확히 보존(`"12:40"`→760, `"1:-2"`→None 등 전부 불변). 회귀 테스트: 위첨자/아래첨자/원문자 time이 예외 없이 None으로 강등됨을 파라미터화로 고정(`test_labels.py`).
+- **재발 방지**: **`int()`/`float()` 앞에 `str.isdigit()`를 가드로 쓰지 마라** — `isdigit ⊋ isdecimal = int-domain`. 십진 판정이 목적이면 `isdecimal()`을, 그 외엔 변환 자체를 `try/except`로 감싸 강등한다(사전검사는 변환의 예외 도메인을 정확히 못 미러링한다). 신뢰 불가 입력(LLM 출력)을 파싱하는 모든 경로에서 "이 사전검사 술어가 뒤따르는 변환의 예외집합과 정확히 일치하는가"를 자문.
+
+---
+
 ## 🔄 갱신 정책
 
 - **1분 이상 디버깅**했으면 원인이 잡힌 직후 여기 한 항목(증상/원인/해결/재발방지)을 남긴다.

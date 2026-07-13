@@ -220,6 +220,26 @@ def test_pred_null_statements_does_not_crash():
     assert len(flags) == 1 and flags[0].statements == []
 
 
+def test_pred_exotic_unicode_time_sec_degrades_not_crash():
+    # [리뷰 T-034/T-035] 예측 time_sec가 'MM:SS' 꼴이되 십진 외 유니코드 숫자(위첨자 ²·아래첨자 ₂·
+    # 원문자 ⑨)를 품으면 str.isdigit()는 True지만 int()는 거부한다 — MM:SS 분기의 int()가 감싸이지
+    # 않으면 uncaught ValueError가 배치 전체를 죽인다(예측은 강등, 배치 안 죽게 라는 불변식 위반).
+    # 파싱 실패는 힌트 없음(None)으로 강등돼야 한다(현행 안전 폴백과 동일).
+    flags = load_pred_flags_data(
+        [{"id": "p1", "type": "모순",
+          "statements": [{"speaker": "p2", "quote": "x", "time_sec": "12:3²"}]}])
+    assert len(flags) == 1                               # 배치가 죽지 않음
+    assert flags[0].statements[0].time_sec is None       # 크래시 대신 힌트 강등
+
+
+@pytest.mark.parametrize("t", ["12:3²", "₂:30", "8:⑨"])
+def test_coerce_pred_time_non_decimal_digit_returns_none(t):
+    # str.isdigit()의 도메인은 int()보다 넓다 — 위첨자(²)·아래첨자(₂)·원문자(⑨)는 isdigit True지만
+    # int()가 ValueError. 관용 파싱은 예외 없이 강등(None)으로 끝나야 한다.
+    from detect_bench.labels import _coerce_pred_time
+    assert _coerce_pred_time(t) is None
+
+
 def test_pred_nondict_statement_element_skipped():
     # [리뷰3] statements 리스트의 비-dict 원소(문자열/숫자/null)는 크래시가 아니라 건너뜀.
     flags = load_pred_flags_data(
