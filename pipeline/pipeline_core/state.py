@@ -73,6 +73,14 @@ class IllegalTransition(ValueError):
     """(state, event)가 전이표에 없거나 필수 데이터가 없음 — 무성 전진 금지, fail-loud."""
 
 
+class CorruptJob(ValueError):
+    """영속본이 상태 모델상 존재할 수 없는 잡 — 로드/저장 경계(PR2 rehydrate)에서 fail-loud.
+
+    advance()는 이런 잡을 만들지 않는다(순수 코어의 전이는 계보를 항상 보존). 오직 외부
+    rehydrate(sqlite·수동 편집·스키마 드리프트·다른 라이터)만 계보 끊긴 잡을 밀어넣을 수 있고,
+    validate_persisted가 그 경계에서 검출한다."""
+
+
 # 정상 전진 이벤트: event -> (source, target). 각 이벤트는 정확히 한 전진 간선.
 _FORWARD = {
     Event.SUBMIT_STT: (State.UPLOADED, State.TRANSCRIBING),
@@ -210,6 +218,64 @@ def _check_state_invariant(job: Job) -> None:
     if need is not None and getattr(job, need) is None:
         raise IllegalTransition(
             f"{job.state.value} 상태 진입 불변식 위반: {need} 없음(빈 전사/결과 잡)")
+
+
+def _required_refs(job: Job) -> tuple:
+    """job의 '도달 단계'가 비어있지 않게 요구하는 ref 필드명들(계보 단일 출처).
+
+    _STATE_REQUIRES(어느 상태가 어느 ref)와 _ORDER(진행 순서)에서 파생 — 계보를 이중 기재하지
+    않는다. 도달 단계 이상의 모든 요구 ref를 누적하므로, _STATE_REQUIRES에 직접 없는 상태
+    (ANALYZING/DONE)도 앞 단계 ref(transcript 등)를 물려받아 강제된다.
+    - happy 상태: _ORDER[state]가 도달 단계.
+    - FAILED: 실패 전 완료 체크포인트(_RESUME_POINT[failed_from])까지 도달 → 그 ref 보유해야.
+    - PERMANENTLY_FAILED: 죽은 터미널(재개 없음) → 강제 없음(어느 단계서든 소진 가능)."""
+    if job.state is State.PERMANENTLY_FAILED:
+        return ()
+    if job.state is State.FAILED:
+        attained = _ORDER.get(_RESUME_POINT.get(job.failed_from), -1)
+    else:
+        attained = _ORDER.get(job.state, -1)
+    return tuple(field for st, field in _STATE_REQUIRES.items()
+                 if attained >= _ORDER[st])
+
+
+def _is_blank_ref(value) -> bool:
+    """ref가 '실 콘텐츠를 가리키지 못하는' 빈 값인가 — None·비-str·빈/공백 문자열 전부.
+
+    str-only `== ""`로는 공백만("  ")·탭/개행·BLOB(b'')·비-str이 새어 계보 게이트를 관통한다
+    (리뷰 CONFIRMED: sqlite TEXT affinity로 빈 BLOB이 b''로 rehydrate). isinstance+strip으로
+    한 술어에 균일화 — '빈 전사 위 유료 재실행' 손상 클래스를 한 곳에서 막는다."""
+    return not isinstance(value, str) or not value.strip()
+
+
+def validate_persisted(job: Job) -> None:
+    """로드/저장 경계 전수 무결성 — 필수 스칼라(id·audio_ref·attempts)·FAILED 정합·계보 ref.
+
+    advance()의 _check_state_invariant는 전이 경로의 '피해 나는' None만 막는다(TRANSCRIBED/
+    ANALYZED). 영속 경계는 그보다 강하게, '어느 스토어로도 왕복 가능한 잡인지'를 Job 단위로
+    마감한다 — 손상 rehydrate(빈 전사·계보 끊긴 ANALYZING·재개 목표 없는 FAILED·필수 필드 누락)가
+    상태머신이나 스토어에 진입하기 전에 CorruptJob. repository가 save/get 양쪽에서 호출(대칭 강제).
+
+    필수 스칼라를 여기서 균일 거부해야 InMemory·Sqlite가 같은 입력에 같게 반응한다(포트 대체
+    가능성). sqlite는 id/audio_ref/attempts에 NOT NULL을 걸어 raw IntegrityError로 크래시하지만
+    InMemory엔 그 제약이 없어 조용히 수용한다 — 두 경로의 발산을 이 게이트가 막는다(리뷰 CONFIRMED).
+    PR1 2차 리뷰의 '계약은 진입점 단일 출처에서 균일 강제' 교훈을 영속 경계에 적용."""
+    # 모든 잡의 필수 스칼라 — 어느 상태서든 존재해야(sqlite NOT NULL 컬럼과 정합).
+    if not isinstance(job.id, str) or not job.id.strip():
+        raise CorruptJob(f"id가 비어있음(필수 식별자): {job.id!r}")
+    if _is_blank_ref(job.audio_ref):
+        raise CorruptJob(f"audio_ref가 비어있음(모든 잡의 필수 필드): {job.audio_ref!r}")
+    if not isinstance(job.attempts, int) or job.attempts < 0:
+        raise CorruptJob(f"attempts가 비음수 정수가 아님: {job.attempts!r}")
+    # FAILED 재개 목표 정합 — 계보(_required_refs)가 well-defined하려면 먼저 확인.
+    if job.state is State.FAILED and job.failed_from not in _RESUME_POINT:
+        raise CorruptJob(
+            f"FAILED인데 재개 목표(failed_from={job.failed_from})가 외부 작업 단계가 아님 — 계보 미정의")
+    # 상태별 계보 ref — 도달 단계가 요구하는 ref는 실 콘텐츠를 가리키는 비어있지 않은 str이어야.
+    for field in _required_refs(job):
+        if _is_blank_ref(getattr(job, field)):
+            raise CorruptJob(
+                f"{job.state.value} 잡의 {field}가 비어있음(계보 위반: None/빈·공백/비-str)")
 
 
 def new_job(audio_ref: str, *, clock: Clock, ids: IdSource) -> Job:

@@ -9,6 +9,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from pipeline_core.state import (
+    CorruptJob,
     Event,
     FixedClock,
     IllegalTransition,
@@ -17,6 +18,7 @@ from pipeline_core.state import (
     State,
     advance,
     new_job,
+    validate_persisted,
 )
 
 T0 = "2026-07-14T00:00:00+00:00"
@@ -351,3 +353,120 @@ def test_job_is_frozen_immutable():
     with pytest.raises(FrozenInstanceError):     # 구체 예외 — 무관한 에러로 통과 방지
         j.state = State.DONE
     assert j.state is State.UPLOADED             # 변경 시도가 필드를 건드리지 않았음
+
+
+# ── 로드 경계 전수 무결성 (validate_persisted — PR2 rehydrate가 호출) ──────
+# advance()의 _check_state_invariant는 '피해 경로'만 None-거부(TRANSCRIBED/ANALYZED). 로드/저장
+# 경계는 더 강하게 Job 단위로 마감한다: 빈 문자열('') ref·상태별 전 ref 계보(ANALYZING/DONE도
+# transcript 보존)·FAILED 재개 목표 정합. 손상 rehydrate가 상태머신에 진입하기 전에 fail-loud.
+# 계보 요구는 _STATE_REQUIRES+_ORDER에서 파생(단일 출처) — advance 표를 고치면 여기도 자동 반영.
+def test_validate_persisted_accepts_valid_snapshots():
+    for j in (
+        _job(State.UPLOADED),
+        _job(State.TRANSCRIBING),
+        _job(State.TRANSCRIBED, transcript_ref="t/1"),
+        _job(State.ANALYZING, transcript_ref="t/1"),
+        _job(State.ANALYZED, transcript_ref="t/1", result_ref="r/1"),
+        _job(State.DONE, transcript_ref="t/1", result_ref="r/1"),
+        _job(State.FAILED, failed_from=State.TRANSCRIBING, attempts=1, error="x"),
+        _job(State.FAILED, failed_from=State.ANALYZING, attempts=1, error="x",
+             transcript_ref="t/1"),
+        _job(State.PERMANENTLY_FAILED, failed_from=State.ANALYZING, attempts=3),
+    ):
+        validate_persisted(j)                    # 무결 잡은 예외 없이 통과(오탐 방지)
+
+
+def test_validate_persisted_rejects_empty_string_transcript_ref():
+    # 잔여 결함 (a): ''는 _check_state_invariant(None-only)를 통과하지만 '빈 전사'라 재감지 위험.
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.TRANSCRIBED, transcript_ref=""))
+
+
+def test_validate_persisted_rejects_analyzing_without_transcript():
+    # 잔여 결함 (b) 계보: ANALYZING은 _STATE_REQUIRES에 없어 None이 통과하지만, TRANSCRIBED에서
+    # 온 계보상 transcript_ref가 반드시 있어야 한다(없으면 ANALYSIS_DONE이 빈 전사 위 결과 커밋).
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.ANALYZING, transcript_ref=None))
+
+
+def test_validate_persisted_rejects_analyzing_empty_transcript():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.ANALYZING, transcript_ref=""))
+
+
+def test_validate_persisted_rejects_done_missing_result():
+    # 계보: DONE은 transcript+result 둘 다 보존해야 한다(_STATE_REQUIRES가 DONE을 안 담아도).
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.DONE, transcript_ref="t/1", result_ref=None))
+
+
+def test_validate_persisted_rejects_analyzed_empty_result():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.ANALYZED, transcript_ref="t/1", result_ref=""))
+
+
+def test_validate_persisted_rejects_failed_analyzing_without_transcript():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.FAILED, failed_from=State.ANALYZING,
+                                attempts=1, error="x", transcript_ref=None))
+
+
+def test_validate_persisted_accepts_failed_transcribing_without_transcript():
+    # 대조: TRANSCRIBING 실패는 아직 전사 없음 — 계보상 transcript_ref 불요(정상).
+    validate_persisted(_job(State.FAILED, failed_from=State.TRANSCRIBING,
+                            attempts=1, error="x", transcript_ref=None))
+
+
+def test_validate_persisted_rejects_failed_without_valid_failed_from():
+    # FAILED인데 재개 목표(failed_from)가 없거나 외부작업 단계가 아니면 계보 미정의 → 손상.
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.FAILED, failed_from=None, attempts=1, error="x"))
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.FAILED, failed_from=State.UPLOADED,
+                                attempts=1, error="x"))
+
+
+def test_validate_persisted_permanently_failed_lenient_on_refs():
+    # 죽은 터미널(재개 없음) — 어느 단계서든 소진 가능하므로 ref 계보 강제 안 함.
+    validate_persisted(_job(State.PERMANENTLY_FAILED, failed_from=State.TRANSCRIBING,
+                            attempts=3, transcript_ref=None, result_ref=None))
+
+
+# ── 필수 스칼라·강한 빈값 술어 (리뷰 반영: 포트 대체 가능성·계보 게이트 강화) ──
+# validate_persisted가 계보 ref만 보면, sqlite NOT NULL(id/audio_ref/attempts)은 raw
+# IntegrityError로 터지지만 InMemory는 조용히 수용 → 두 스토어 발산. 필수 스칼라를 게이트에서
+# 균일 거부해 대체 가능성을 회복한다. 또 str-only `== ""`는 공백만·비-str을 놓치므로 강화한다.
+def test_validate_persisted_rejects_missing_audio_ref():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.UPLOADED, audio_ref=None))
+
+
+def test_validate_persisted_rejects_blank_audio_ref():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.UPLOADED, audio_ref="   "))
+
+
+def test_validate_persisted_rejects_empty_id():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.UPLOADED, id=""))
+
+
+def test_validate_persisted_rejects_bad_attempts():
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.UPLOADED, attempts=None))     # sqlite NOT NULL 대칭
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.UPLOADED, attempts=-1))       # 비음수 위반
+
+
+def test_validate_persisted_rejects_whitespace_only_ref():
+    # 빈 문자열뿐 아니라 공백만/탭·개행만 ref도 '빈 전사'라 거부(str-only == "" 가 놓쳤던 클래스).
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.TRANSCRIBED, transcript_ref="   "))
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.ANALYZED, transcript_ref="t/1", result_ref="\t\n"))
+
+
+def test_validate_persisted_rejects_non_str_ref():
+    # 비-str ref(bytes 등) — sqlite TEXT affinity로 BLOB(b'')이 rehydrate되는 경로 방어.
+    with pytest.raises(CorruptJob):
+        validate_persisted(_job(State.TRANSCRIBED, transcript_ref=b""))
