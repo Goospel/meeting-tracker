@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bench-stats"
+version = "0.1.0"
+description = "벤치마크 통계 판정층 — 극소표본에서 정직한 CI·검정·MDE (meeting-tracker, 감지·STT 공유)"
+requires-python = ">=3.11"
+# 런타임 의존성 0 — 표준 라이브러리(math·random·statistics·fractions·hashlib)만.
+# scipy/numpy 금지: 이 형제 패키지가 zero-dep이라야 detect_bench·stt_bench의 '런타임 의존성 0'이
+# 전이적으로 보존된다(서드파티 유입 0).
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bench_stats*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -12,6 +12,22 @@
 
 ## 2026-07-13
 
+### fix · 통계 판정층 max-effort 리뷰 — 판정 정확성 결함 15종 수정 ([PR #15](https://github.com/Goospel/meeting-tracker/pull/15), 동일 브랜치)
+- 커밋 `3aedc0f` 직후 `/code-review ultra`(클라우드 미가동 → 로컬 max-effort 폴백: 10앵글 파인더 → 1표 검증 → 스윕)로 신설 `bench_stats`를 감사. 판정층의 **존재 이유(극소 n 정직성)를 정면으로 깨는 오판정** 다수 확정 → TDD(Red 19 → Green)로 수정 후 **15 스킵틱 적대적 검증 전부 SOUND**(무회귀). 전체 **111테스트**(92+19).
+  - **판정 오류(가장 위험)**: ① `verdict_paired`가 recall(성공/n)이 아닌 원 카운트 차를 비교 → 분모 다르면 **열등한 감지기를 SIGNIFICANT로 반대방향 오판정**(B가 전 회의 우수한데 A 유의) → n_a≠n_b fail-loud. ② 빈 회의(n=0)가 `n_clusters`를 부풀려 **추론 플로어 우회**(3실회의+3빈=INCONCLUSIVE) → 모든 추론을 유효회의(n>0)수 기준으로. ③ 분산 0 파국이 FAILS보다 먼저 DEGENERATE로 삼켜짐(0% recall이 "무변동") → 파국 검사를 앞으로. ④ `k=round(point·n)` 은행가반올림이 .5 tie에서 거짓 MEETS/FAILS → round-half-down(하한)/up(상한). ⑤ 동점 회의(d=0)가 부호검정 floor의 n 부풀림 → n_informative 기준. ⑥ 중복 cluster_id 무성 드롭 → fail-loud.
+  - **부트스트랩·검정력**: ⑦ `cluster_bootstrap_ci`가 n=0 회의 미필터 → 리샘플 NaN이 CI 경계로 누출(pooled와 불일치) → 필터+fail-loud. ⑧ icc 생성모형이 상관을 **icc²로 실현**(한 자릿수 과소, 검정력 과대낙관) → λ=√icc. ⑨ `comparison_power` 도달 불가 시 **시뮬 안 한 n=41 조용히 반환** → fail-loud(+`max_clusters`). ⑩ baseline+effect>1 무성 클리핑(명목≠실제) → 검증 raise. ⑪ MC 치환 p=ge/n_mc에 +1 보정 없어 **무효 p=0** → (ge+1)/(n_mc+1). ⑫ `int(n//deff)` float off-by-one → eps-스냅 floor.
+  - **견고성**: ⑬ `cluster_bootstrap_ci` level 미검증(0/1에서 퇴화·크래시) → 가드. ⑭ prereg tuple 필드 dump/load 라운드트립 타입 불일치 → canonical(JSON) 단일출처 정규화. ⑮ `ClusterBinary` 소수 카운트 허용 → 정수 강제.
+  - **함정 `→ T-037`**: ④ 첫 수정(양방향 floor/ceil)이 상한을 무조건 넓혀 **파국 민감도를 죽여** 기존 테스트 회귀 — 단일 정수 k로 두 경계를 동시에 보수화 불가, tie만 가르는 방향 반올림으로 재수정. 리포 전체 507(detection 229·stt 167·stats 111).
+
+### feat · 통계 판정층(ⓑ) — 극소표본에서 정직한 CI·검정·MDE (신설 공유 패키지 `bench_stats`) ([PR #15](https://github.com/Goospel/meeting-tracker/pull/15))
+- 감지·STT 벤치가 공유하는 **통계 판정층**을 신설(`benchmarks/stats/`, `bench_stats`). 로드맵의 세 요소(McNemar·clustered bootstrap·사전등록 MDE)를 극소표본(회의 3·flag 15) 현실에 **정직하게** 안착. **판단 패널 워크플로우**(4 학파 독립 설계 → 소표본 타당성 적대 검증 → 종합)로 방법론 확정 후 TDD 구현.
+  - **핵심 통찰 — 유효표본은 flag 15가 아니라 회의(cluster) 3**: flag는 회의 안에 군집돼 독립이 아니므로 모든 추론은 회의 수준에서만 정당. 이 층의 임무는 "얼마나 좋은가" 판정이 아니라 (a) 극소 n에서 방어 불가능한 주장을 fail-loud 거부 + (b) "얼마나 더 모아야 말할 수 있는가"를 데이터 독립 공식으로 답.
+  - **킬러 정직성 함수**: `min_attainable_two_sided_p(n)=2/2ⁿ`·`comparison_floor_n(0.05)=6`(폐형식·관측 무관). n=3이면 **어떤 데이터가 나와도** 쌍체 유의 최소 p=0.25>0.05라 구조적으로 유의 불가.
+  - **모듈**: 정확 Clopper-Pearson·정규화 불완전베타·zero-event 상한(FP=0을 정밀도 1.00으로 못박지 않음)·cluster bootstrap(n≤6 전열거 결정적, BCa는 ≥10 cluster 게이트/강등)·cluster 부호치환(판정 1차 검정)·정확이항 MDE·수집목표(중단규칙)·Holm·**9-상태 판정 상태기계**·사전등록 해시 동결.
+  - **실측 3건 판정 = DESCRIPTIVE_ONLY**: 재현율 점추정 0.878이나 목표 판정 봉쇄(n<floor 6); pooled CP [0.595,0.983]은 "정직한 CI 아님 — 폭의 낙관적 하한"; 정밀도 FP 0/13은 "1.00" 미주장(zero-event 보수 상한 precision≥0.368); 쌍체 전부 inert(감지기 1개); 수집목표 **+3회의**. `test_measured_verdict.py`로 이 정직한 판정을 회귀 고정.
+  - **정직성 설계 결정**(비평이 잡은 결함 2건 수정): ① pooled CP를 clustering 무시로 "폭의 낙관적 하한"으로만 라벨(회의 3점은 회의간 분산 식별 불가 df=2) ② estimand(회의가중 vs flag가중, 회의 크기 4,6,5 불균등이라 값 다름)를 **사전등록 필수 필드**로 승격. **결정성(seed)≠통계적 정밀**을 `n_distinct_resamples`·`granular` 경고로 강제 노출.
+  - **1차 종점 = 재현율(회의 가중평균)**, target 0.85, α 0.05로 사전등록(`PREREGISTRATION.md`). 현재 3건은 **탐색적/서술적**으로 못박고 엄격 사전등록은 홀드아웃에만(사후등록 방지). zero-dep(stdlib만)·TDD **92테스트**(known-answer·퇴화 엣지·상태기계·실측 판정 동결). 리포 전체 488(detection 229·stt 167·stats 92).
+
 ### feat · 실 Claude API 실호출 실측 — 골든 3건 종합(Opus 4.8) ([PR #14](https://github.com/Goospel/meeting-tracker/pull/14))
 - 어댑터(PR #11)가 완성된 뒤 크레덴셜만 대기하던 **실호출 실측**을 처음 수행. 골든 3건(luma 기준선·greenmart 이탈대응·payments 경계) 전사를 `--detector claude`(Opus 4.8)로 실감지 → 채점. 목업(faithful=만점 설계) 대신 실제 모델이 몇 건을 어떻게 맞히는지 측정.
   - **종합 정밀도 1.00 · 재현율 0.87**(15 flag 중 TP 13 / FP 0 / FN 2). 세 회의 모두 **가짜 감지·할루시 인용·타입 혼동 0** — Claude가 "흐름단절"이라 찍은 13건은 전부 진짜.

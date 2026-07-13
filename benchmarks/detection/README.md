@@ -94,7 +94,7 @@ python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred 
   **종합 정밀도 1.00 · 재현율 0.87**(`measurements/README.md`). 실 pred는 `measurements/`에 동결,
   채점 회귀는 `test_measured_real.py`가 실 API 재호출 없이 고정.
 - **경계 span·tier2 gap 재설계** — 골든 3건째(`payments_postmortem.json`)가 두 gap을 현행 동작으로 스트레스·pin했다: ① 모호성 정책 비대칭(단일=첫출현 추측 vs 스팬=거부) ② 경계 퍼지 tier 부재(창 verbatim 전용 → 경계 인용 1단어 의역이면 전량 소실). 둘 다 매칭 의미론 변경이라 **실측 데이터 확보 후 재설계**(test_gap1/gap2가 재설계 시 알림 역할).
-- **통계 판정층** — 1단계와 공유(clustered bootstrap CI 등). 다중 회의 수집 후.
+- ✅ **통계 판정층** — 완료(PR #15). 신설 공유 패키지 [`benchmarks/stats/`](../stats/)(`bench_stats`)로 감지·STT가 `ClusterBinary`로 환원해 공유. **유효표본=회의(cluster)** 원칙: 정확 CI·cluster 부호치환·MDE·수집목표·9-상태 판정기계·사전등록. 실측 3건 판정=**DESCRIPTIVE_ONLY**(정밀도 1.00 미주장·수집목표 +3). 실 추론 사용은 홀드아웃 수집 후.
 
 > 골든 2건째(`greenmart_meeting.json`)는 **하드케이스** — 중첩(한 라인 2 flag)·반복발화 분해(디코이 vs 근거 time 갈림)·모순↔번복 근접(type_confusion)·교차화자 near-miss·같은 type 복수. judge panel로 선정.
 > 골든 3건째(`payments_postmortem.json`)는 **인접 동일화자 세그먼트(STT 분할 모사)**로 경계 span grounding·tier2 퍼지를 **채점 경로에서** 스트레스한 첫 골든 — f1 첫 진술이 s6·s7에 쪼개진 경계 인용을 예측은 하나로 내고(span 회수) 골든은 세그먼트별로 라벨해 같은 segset로 매칭. 5R 보류 2건 gap을 현행 동작 pin.
