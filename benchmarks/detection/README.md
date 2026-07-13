@@ -37,12 +37,27 @@ detect_bench/
   grounding.py  quote grounding — NFC 부분일치 + 토큰 Jaccard 폴백 (할루시 드롭 + 세그먼트 해소)
   score.py      감지 채점기 — 그리디 매칭 · per-type P/R/F1 · 가짜/놓친 분리 · type_confusion
   report.py     회의 단위 마크다운 리포트 + CLI
+  detect.py     감지 어댑터 — 전사 → 프롬프트 → 감지 포트(리플레이/Claude) → 응답 파싱 → pred flags
+  cliutil.py    CLI 공용 유틸 — force_utf8_stdio (T-027 단일 출처)
 fixtures/
   golden/luma_meeting.json          골든 회의 1건 (전사 25세그 + flag 4종) — docs/data-schema.json 재사용
   pred/luma_meeting.faithful.json   mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
   pred/luma_meeting.contaminated.json  mock 예측: 4가지 실패모드 심음
-tests/          46개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트 + 적대적 리뷰 1·2차 회귀)
+  response/luma_meeting.claude.txt  캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
+tests/          168개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터 + 적대적 리뷰 회귀)
 ```
+
+## 감지 어댑터 (전사 → pred JSON)
+
+채점기의 *앞단*. 지금까지 pred JSON을 mock 픽스처로 대체했지만, `detect.py`가 실제로
+그 pred를 만든다: 골든 전사 → 프롬프트(정답 누출 0) → 감지 포트 → Claude 자유형식 응답에서
+flags JSON 견고 추출 → pred flag JSON. **런타임 의존성 0**(실제 Claude 포트도 anthropic SDK가
+아니라 stdlib urllib) · 크레덴셜은 오직 실제 API 포트에만 게이트.
+
+- **`ReplayDetectorPort`** — 캔드 응답 재생. 크레덴셜 없이 프롬프트→파싱→채점 **전 파이프라인**을
+  실제로 관통(Track A의 톤 렌더러에 대응).
+- **`ClaudeDetectorPort`** — 실제 Anthropic Messages API(stdlib HTTP). `ANTHROPIC_API_KEY` 없으면
+  `DetectorCredentialError`. 크레덴셜 오면 포트만 스왑.
 
 ## 실행
 
@@ -54,17 +69,30 @@ python -m pytest -q
 python -m detect_bench.report \
   --golden fixtures/golden/luma_meeting.json \
   --pred   fixtures/pred/luma_meeting.contaminated.json
+
+# 어댑터 관통 (전사 → 감지 → pred JSON) — 리플레이 포트로 크레덴셜 없이
+python -m detect_bench.detect \
+  --golden   fixtures/golden/luma_meeting.json \
+  --detector replay \
+  --response fixtures/response/luma_meeting.claude.txt \
+  --out      /tmp/pred.json
+python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred /tmp/pred.json
+
+# 실제 Claude 감지 (크레덴셜 필요 — 어댑터는 동일, 포트만 스왑)
+#   ANTHROPIC_API_KEY=... python -m detect_bench.detect \
+#     --golden fixtures/golden/luma_meeting.json --detector claude --out pred.json
+#   (응답이 max_tokens로 절단되면 클린 에러 — --max-tokens 를 올려 재시도)
 ```
 
 ## 스코프 경계 — 크레덴셜/다음 단계로 미룬 것
 
-- **실제 Claude 감지 적용** — 지금은 mock 예측으로 채점기를 검증. 실제로는 전사본을
-  Claude API에 넣어 flag JSON을 받아 이 채점기에 통과. (Claude API 크레덴셜 대기)
+- **실제 Claude API 실호출** — 어댑터(프롬프트·파싱·포트)는 완성됐고 리플레이로 관통 검증됨.
+  남은 건 `--detector claude` 실호출뿐(`ANTHROPIC_API_KEY` 대기). 코드 변경 없이 포트만 스왑.
 - **골든 회의 2건째** — 하드케이스(중첩 모순, 화자 혼동) 보강용.
 - **통계 판정층** — 1단계와 공유(clustered bootstrap CI 등). 다중 회의 수집 후.
 
 ## ⚠️ 데이터 정직성
 
-`fixtures/pred/`의 예측은 **합성 mock**이다. 실제 Claude API 호출 결과가 아니며, 어떤
-감지 성능도 주장하지 않는다. 채점기의 정확성(가짜/놓친/타입혼동 분리)을 검증하기 위한
-통제된 입력일 뿐이다.
+`fixtures/pred/`의 예측과 `fixtures/response/`의 Claude 응답은 **전부 합성 mock**이다. 실제
+Claude API 호출 결과가 아니며, 어떤 감지 성능도 주장하지 않는다. 채점기·어댑터의 정확성
+(가짜/놓친/타입혼동 분리, 파싱 견고성)을 크레덴셜 없이 검증하기 위한 통제된 입력일 뿐이다.

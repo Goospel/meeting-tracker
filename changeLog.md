@@ -12,6 +12,25 @@
 
 ## 2026-07-13
 
+### feat · 감지 어댑터 레이어 — 골든 전사 → Claude 감지 → pred flags (ⓐ, 크레덴셜 게이트·리플레이 관통) ([PR #11](https://github.com/Goospel/meeting-tracker/pull/11))
+- 지금까지 채점기(score/report)는 **mock pred JSON**을 먹였다. 실제로는 전사본을 Claude에 넣어 flag JSON을 받아야 한다 — 그 **앞단(어댑터)**을 채운 게 이 작업(구축 순서 2단계 ⓐ). Track A 렌더 레이어와 같은 패턴: **Port + 크레덴셜-불요 실동작 구현 + 크레덴셜-게이트 확장점**. `detect_bench/detect.py` 신설:
+  - **프롬프트 빌더**(`build_detection_prompt`) — 전사(발화자 id·시각·텍스트)와 4유형 정의·엄격 JSON 계약만 제시. **정답 누출 0**: meta.summary/decisions·golden flags(제목/설명)·seg.flags 역참조는 절대 안 넣음.
+  - **응답 파서**(`parse_detection_response`) — Claude 자유형식 출력(코드펜스·서문/후문 산문)에서 flags JSON을 견고 추출. 순수·결정적 코어.
+  - **감지 포트** — `ReplayDetectorPort`(캔드 응답 재생 = **크레덴셜 0으로 프롬프트→파싱→채점 전 파이프라인 실검증**, ToneTtsPort 대응) / `ClaudeDetectorPort`(실제 Anthropic Messages API를 **stdlib urllib**로 — anthropic SDK 안 실어 **런타임 의존성 0 유지**, `ANTHROPIC_API_KEY` 없으면 `DetectorCredentialError`). `get_detector` 팩토리 게이트.
+  - **CLI**(`python -m detect_bench.detect`) — 골든 전사 → pred flag JSON 산출 → 기존 `report --pred`가 그대로 소비. 리플레이 픽스처(`fixtures/response/luma_meeting.claude.txt`)로 전사→감지→채점 만점 관통(크레덴셜 없이).
+  - labels 리팩터: `load_pred_flags`를 `coerce_pred_container`+`pred_flags_from_items`로 분리(파일 로더와 어댑터가 **같은 강등 규칙** 공유).
+- **적대적 코드리뷰 2R 수렴**(측정 코어라 find→verify→sweep):
+  - **1R**(3에이전트 3렌즈, 확정 6+): **HIGH** 파서가 컨테이너를 '첫 파싱값'으로 잡아 산문 속 stray 배열(`[]`·`[1,2]`·statements 배열)이 진짜 flags를 **무성 강탈**(빈 `[]`→"0건 감지" 둔갑=벤치 오염) → 의미 기반 선택으로 재작성(`→ T-031`). 그 외: `_text_from_api_response` 비문자열 text 블록 TypeError, `_urllib_post` HTTP 4xx/5xx 에러본문 소실, 비-dict `meta` 골든 AttributeError, **프롬프트 예시가 골든 f1 좌표(p2@1240·2510) 노출→낙관 편향**, 데드 임포트.
+  - **2R 검증 스윕**(1에이전트, HIGH 1+MED 1): 1R 수정이 **덜 막은** 2건 — ⓐ 빈/예시 **`{"flags":...}` 래퍼 에코**가 위치로 강탈(첫 컨테이너 방식의 잔존 구멍) → **실제 flag 수 최대(동수면 마지막)** 선택으로, ⓑ bare 배열 `all()` 게이트가 원소 하나 비정상에 배열 전체 버려 **부분손실** → `any()` 게이트로 전체를 강등 경로로.
+- **적대적 코드리뷰 3R(xhigh: 10앵글 파인더 → 후보별 검증 1표 → 갭 스윕; 확정 14+개연 1, REFUTED 1) 반영** — 2R 휴리스틱이 **극단 카디널리티(0건·1건·절단)** 에서 뒤집히는 것을 실측으로 잡고 뿌리부터 수정(`→ T-032`):
+  - **뿌리(프롬프트)**: 예시를 **JSON 문법 밖 표기**(`<...>` 플레이스홀더)로, 0건 규칙에서 파싱 가능한 `{"flags": []}` 리터럴 제거 → verbatim 에코가 파서 후보 자격 자체를 상실. 불변식 테스트: `parse(프롬프트 원문)` = 반드시 ValueError(수정 전엔 프롬프트에서 더미 예시가 추출됐다).
+  - **파서**: 카운트를 flag스러운 원소로 한정(statement-dict 기형 에코 강탈 차단) · 빈/무내용 컨테이너는 내용 있는 차선에 양보(bare 배열 답 + 후행 `{"flags": []}` 에코 0건 둔갑 차단) · fallback '첫 후보' → **내용 최다**(서두 에코의 bare 배열 강탈 차단) · `"flags"` 텍스트 존재+유효 컨테이너 0 = **절단 의심 클린 에러**(완성 조각 부분 인양 금지 — 10건→1건 무성 축소 차단) · `RecursionError` 격리(퇴화 중첩 `[`*N 트레이스백 차단) · 전량 비-dict 가드를 CLI 조기검증에서 파서 계약으로 이동.
+  - **실 API 포트**: `stop_reason=max_tokens` **클린 에러**(절단 텍스트가 파서로 새는 진입점 차단) + `--max-tokens` 노브 배선(팩토리·CLI — 절단 시 사용자 완화 수단) · `urlopen` **timeout 300s**(스톨=행 → 클린 에러) · 크레덴셜 게이트 **생성자 단일 지점**화(팩토리/직접 생성 메시지 드리프트 제거, 공백 키 strip 거부) · 비문자열 `error.message` TypeError 차단.
+  - **CLI/labels**: 출력 쓰기를 try 안으로(쓰기 OSError만 트레이스백으로 새던 비대칭 제거) · NaN/±Infinity → null 강등 + `allow_nan=False`(pred 파일 RFC 8259 보증) · `pred_flags_from_items` 컨테이너 가드(래핑 dict 오진 차단) · `_is_num` isfinite(±Infinity가 `[infs]`로 프롬프트에 새던 것 차단) · `coerce_pred_container` 허위 공유 주장 독스트링 수정(bare `[]`는 로더=0건 수용/어댑터=fail-loud로 **의도적 비대칭** 문서화) · 참석자 렌더 기형(`(, 영업)`)·null title `None` 누출 수정 · T-027 reconfigure 5벌째 복붙을 `cliutil.force_utf8_stdio()` 공용 헬퍼로(detect+report).
+  - **테스트 위생(갭 스윕)**: `test_cli_claude_without_key_clean_error`에 `delenv` — 키가 설정된 환경에서 단위테스트가 실 API를 때리던 것 차단(`→ T-033`) · 좌표 누출 가드를 1240까지 확장 · 죽은 `FlagType` 임포트 제거.
+- **TDD** Red→Green, **168테스트**(107 → 2R 146 → 3R +22, labels 회귀 3 포함). e2e: 리플레이 픽스처 전사→pred→report 만점, 파서 적대입력(빈/숫자/dict 배열 선행, 래퍼 에코 전후·0건·1건 동수, 단일 flag, 부분강등, 절단, 퇴화 중첩, 추출실패) 전량 무성오답 0. **왜**: 실측(크레덴셜) 전에 **어댑터·프롬프트·파싱**을 크레덴셜 없이 확정 — 크레덴셜 오면 포트만 스왑하면 실측 시작.
+- **스코프 밖(다음)**: 실제 API 실호출 실측(크레덴셜) · 골든 회의 2건째 · 통계 판정층.
+
 ### feat · 적대적 코드리뷰 5R(xhigh) 반영 — 골든 단일 grounding 복원·힌트 산술 가드·클린 에러 대칭 ([PR #10](https://github.com/Goospel/meeting-tracker/pull/10))
 - 보강 3종(아래 항목)에 대한 5번째 적대적 리뷰(xhigh: 10앵글 파인더 → 후보별 검증자 1표 → 갭 스윕, 16확정+스윕 2, REFUTED 1)를 반영. 핵심 축 2개:
   - **골든 경로의 span 확장 부수효과(뿌리 수정)** — 보강 ①의 span 확장이 골든 grounding까지 흘러들어, ⓐ 골든 tier-2 퍼지 인용의 segset이 1→3세그로 부풀어 핵심 세그먼트만 정확히 인용한 **정탐이 Jaccard 1/3<0.5로 FP+FN 동시 처리**(조용한 채점 왜곡), ⓑ main에서 유효하던 골든이 validate_golden 정방향 게이트(span 전 세그먼트 역참조 요구)에서 **오거부**. → 골든 grounding을 **단일 세그먼트(main 의미론 + 힌트)로 복원**(`resolve_flag_segments(span=False)`), span 확장은 신뢰 불가 예측 전용 구제책으로 한정. 경계 걸친 골든 인용은 statement를 쪼개 라벨(기존 규약 그대로).

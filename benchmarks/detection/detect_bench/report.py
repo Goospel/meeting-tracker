@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from .cliutil import force_utf8_stdio
 from .labels import FlagType, load_meeting, load_pred_flags, validate_golden
 from .score import DetectionScore, score_detection
 
@@ -107,11 +108,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", help="(선택) 마크다운 출력 경로 — 없으면 stdout")
     a = ap.parse_args(argv)
 
-    for stream in (sys.stdout, sys.stderr):           # Windows cp949 콘솔 회피 (T-027)
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):
-            pass
+    force_utf8_stdio()                                # Windows cp949 콘솔 회피 (T-027, 공용 헬퍼)
 
     try:
         golden = load_meeting(a.golden)

@@ -329,6 +329,15 @@ def test_golden_nondict_toplevel_is_clean_error():
         meeting_from_data([{"id": "s1"}])
 
 
+def test_golden_nondict_meta_is_clean_error():
+    # [어댑터리뷰] meta가 dict가 아니면(문자열/리스트) 소비자(build_detection_prompt·report의
+    # meta.get)가 AttributeError로 터진다 — source에서 클린 ValueError로 막는다(transcript/flags와 대칭).
+    with pytest.raises(ValueError):
+        meeting_from_data({"meta": "루미 회의", "transcript": [], "flags": []})
+    with pytest.raises(ValueError):
+        meeting_from_data({"meta": ["x"], "transcript": [], "flags": []})
+
+
 def test_pred_all_nondict_elements_is_clean_error():
     # [리뷰4 G14] 원소 전량이 비-dict(마크다운 문자열 배열 등)면 '예측 0건'으로 무성 통과가
     # 아니라 클린 에러 — 전량 파싱 실패 run이 정상 리포트로 둔갑하면 벤치 비교가 오염된다.
@@ -357,6 +366,30 @@ def test_golden_nonstring_metadata_raises_pred_degrades():
         [{"id": "p1", "type": "모순", "severity": 123, "title": None,
           "statements": [{"speaker": "p2", "quote": "x"}]}])
     assert flags[0].severity == "medium" and flags[0].title == ""
+
+
+# ── 리뷰 3R 회귀: 공용 진입점 컨테이너 가드 + 유한 숫자 판정 ──────────────────
+
+def test_pred_items_nonlist_container_is_clean_error():
+    # [3R P15] '파일/어댑터 공용 진입점'이 컨테이너 가드 없이 dict를 받으면 키(문자열) 순회로
+    # '전량 파싱 불가' 오진을 낸다 — 리스트가 아니면 그 사실을 말하는 클린 에러여야 한다.
+    from detect_bench.labels import pred_flags_from_items
+    with pytest.raises(ValueError) as ei:
+        pred_flags_from_items({"flags": [{"id": "a", "type": "모순", "statements": []}]})
+    assert "리스트" in str(ei.value)                   # '전량 파싱 불가' 오진 메시지가 아님
+
+
+def test_golden_infinite_seconds_are_clean_error():
+    # [3R P16] _is_num이 NaN만 거르고 ±Infinity를 통과시키면 f"{start_sec:.0f}"가 '[infs]'로
+    # 프롬프트에 새고 힌트 산술도 무성 퇴화한다 — 유한 판정은 isfinite여야 독스트링과 일치.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [
+            {"id": "s1", "speaker": "p1", "text": "x", "start_sec": float("inf")}],
+            "flags": []})
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순",
+             "statements": [{"speaker": "p1", "quote": "x", "time_sec": float("-inf")}]}]})
 
 
 def test_golden_fuzzy_quote_near_boundary_still_validates():
