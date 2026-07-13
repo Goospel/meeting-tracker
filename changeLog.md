@@ -12,6 +12,18 @@
 
 ## 2026-07-13
 
+### feat · 골든 회의 3건째 — 경계 span·tier2 하드케이스(결제 장애 회고) ([PR #13](https://github.com/Goospel/meeting-tracker/pull/13))
+- 골든 1·2는 모든 인용이 tier1 부분일치+time 분해 한 경로에 몰려 **경계 span grounding·tier2 퍼지가 채점 파이프라인에서 발화한 적이 없었다**(단위 테스트만 커버). 이 세 번째 골든 `payments_postmortem.json`(27전사·5flag)은 **인접 동일화자 세그먼트(STT가 한 발화를 쪼갠 것을 모사)**를 넣어 그 두 경로를 **채점 경로에서** 스트레스한다.
+  - **경계 span(채점에서 span 타는 첫 골든)**: f1의 첫 진술이 s6·s7(같은 화자 p2 연속)에 쪼개짐 → 예측은 경계 인용 하나로 내 `ground_quote_span`이 `{s6,s7}` 회수, 골든은 span=False라 세그먼트별로 쪼개 라벨 → 같은 segset `{s6,s7,s14}`로 수렴해 매칭.
+  - **제 몫 하는 픽스처**: `faithful`(경계 span 정탐 포함 만점)·`contaminated`((2,2,3)·type_confusion 1(f2↔cp2)·tainted 1(f1↔cp1)·tier2 재정렬 정타 cp3) + 리플레이 응답으로 어댑터 실경로 관통. `validate_golden` 결정적 게이트 통과.
+  - **plan line 67의 5R 보류 2건을 명시 pin(재설계 아님)**: gap ① 모호성 정책 비대칭(단일=첫출현 추측 vs 스팬=거부), gap ② 경계 퍼지 tier 부재(verbatim 경계 `{s17,s18}` vs 1단어 의역 `∅` 소실 — 단일 세그먼트 의역은 tier2로 구제되는데도). 매칭 의미론 변경은 실측 후로 미루고 현행 동작만 고정.
+- **적대적 리뷰 1R(6앵글 파인더 → 후보별 스크립트 검증; 후보 5, REFUTED 3, 생존 2) 반영**:
+  - **[1 CONFIRMED] tier2가 채점 경로에서 load-bearing이 아니었다**: f4(재논의)가 2세그뿐이라 tier2가 죽어도 tier1 하나로 J=0.5 문턱을 충족해 매칭이 서서 **tier2 회수가 채점에 잉여**였다(골든 표방의 절반 미실현). → f4를 3세그(`{s20,s21,s22}`)로 확장해 tier2를 판별적으로 교정(죽이면 J=1/3<0.5로 f4 매칭 소실, (1,3,4)로 붕괴). `test_tier2_is_load_bearing_in_scoring`로 고정.
+  - **[2 PLAUSIBLE] 견고성 가드 공허**: 모든 gold↔pred Jaccard가 {0,1}뿐이라 임계 0.5·동점 내용-타이브레이크가 미발화. → J=0.5 경계·동점 경합 예측을 현행 동작으로 pin하는 테스트 추가(비공허화).
+  - **문면 정직성 3종(REFUTED지만 골든 정합 위해 정리)**: `speaker_stats.turns`를 전사에서 병합턴으로 파생·`action_items` owner를 f3(RCA 미해결)와 정합(미지정)·seq 번호 갱신.
+- **함정 `→ T-036`**: 빌더 `write_text`가 Windows에서 `\n`→CRLF로 조용히 변환 → 기존 LF 골든과 불일치. `newline=""`로 교체 + 기존 CRLF LF 정규화(글로벌 「EOL 보존」 원칙 구체 재발).
+- **TDD Red→Green, 감지 216테스트**(195 → +21). 순수·결정적·런타임 의존성 0·크레덴셜 0 유지. 데이터는 전부 합성(정직성).
+
 ### feat · 골든 회의 2건째 — 하드케이스(그린마트 이탈 대응) + 예측 time 관용 파싱 (ⓒ) ([PR #12](https://github.com/Goospel/meeting-tracker/pull/12))
 - 첫 골든(luma)은 4유형을 한 건씩 담은 기준선. 이 두 번째 골든 `greenmart_meeting.json`(26전사·6flag)은 **순진한 감지기·채점기를 스트레스**하도록 설계한 하드케이스다(구축 순서 2단계 ⓒ). 다양성 확보를 위해 **5개 시나리오 seed 병렬 설계 → 3 심사자 judge panel**로 우승작 선정(만장일치), 정본으로 채택.
   - **하드케이스 5종**: ① 이중 중첩(한 라인이 두 flag 근거 — s16=자기모순 앵커+미해결, s21=번복+모순이 '무상 연장' 어휘 공유) ② 반복발화 분해(f5 근거 인용이 디코이 s5·근거 s18에 byte-동일 → 오직 time으로만 갈림) ③ 모순↔번복 근접(같은 라인·어휘에 두 라벨 공존 → type_confusion 유발) ④ 교차화자 near-miss(다른 화자 대립은 모순이 아니라 재논의) ⑤ 같은 type 복수(모순 2·미해결 2).

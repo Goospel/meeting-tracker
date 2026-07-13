@@ -1,0 +1,97 @@
+[
+  {
+    "id": "pf1",
+    "type": "모순",
+    "severity": "high",
+    "title": "원인 진술 뒤집힘",
+    "topic": "원인 분석",
+    "statements": [
+      {
+        "speaker": "p2",
+        "time_sec": 200,
+        "quote": "결제 승인 API 타임아웃 급증이 외부 PG사 응답 지연 때문"
+      },
+      {
+        "speaker": "p2",
+        "time_sec": 520,
+        "quote": "타임아웃 급증은 저희 커넥션 풀 설정 실수였습니다"
+      }
+    ],
+    "explanation": "같은 화자가 원인을 PG사 지연 → 커넥션 풀 실수로 뒤집음."
+  },
+  {
+    "id": "pf2",
+    "type": "번복",
+    "severity": "high",
+    "title": "롤백 → 핫픽스 번복",
+    "topic": "대응",
+    "statements": [
+      {
+        "speaker": "p1",
+        "time_sec": 360,
+        "quote": "이번 건은 롤백으로 확정합니다"
+      },
+      {
+        "speaker": "p4",
+        "time_sec": 580,
+        "quote": "실제로는 롤백 안 하고 핫픽스로 나갔습니다"
+      }
+    ],
+    "explanation": "확정된 롤백이 조용히 핫픽스로 뒤집힘."
+  },
+  {
+    "id": "pf3",
+    "type": "미해결",
+    "severity": "medium",
+    "title": "정식 RCA 문서 미해결",
+    "topic": "재발 방지",
+    "statements": [
+      {
+        "speaker": "p3",
+        "time_sec": 750,
+        "quote": "정식 RCA 문서를 다음 스프린트에 남기겠습니다"
+      }
+    ],
+    "explanation": "이후 다뤄지지 않음."
+  },
+  {
+    "id": "pf4",
+    "type": "재논의",
+    "severity": "medium",
+    "title": "근본 원인 3자 이견 재논의",
+    "topic": "재발 방지",
+    "statements": [
+      {
+        "speaker": "p2",
+        "time_sec": 800,
+        "quote": "온콜 대응이 느렸던 게 더 큰 문제"
+      },
+      {
+        "speaker": "p4",
+        "time_sec": 840,
+        "quote": "온콜은 정상이었고 알림이 안 울린 게 문제"
+      },
+      {
+        "speaker": "p3",
+        "time_sec": 865,
+        "quote": "모니터링 대시보드가 장애를 너무 늦게 띄운 게 핵심"
+      }
+    ],
+    "explanation": "3자 이견이 결론 없이 넘어감."
+  },
+  {
+    "id": "pf5",
+    "type": "미해결",
+    "severity": "low",
+    "title": "부하 테스트 CI 편입 미해결",
+    "topic": "마무리",
+    "statements": [
+      {
+        "speaker": "p4",
+        "time_sec": 930,
+        "quote": "부하 테스트를 CI 파이프라인에 넣는 것"
+      }
+    ],
+    "explanation": "이후 다뤄지지 않음."
+  }
+]

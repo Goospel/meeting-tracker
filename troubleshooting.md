@@ -115,6 +115,15 @@
 
 ---
 
+### T-036 · Python `write_text`/text-mode write는 Windows에서 `\n`→`\r\n`으로 바꿔, LF 레포에 CRLF 픽스처를 조용히 심는다
+
+- **증상**: 골든 3건째 빌더(`scratchpad/build_golden3.py`)가 `Path.write_text(json..., encoding="utf-8")`로 방출한 JSON 3개가 **CRLF**로 저장됐다(기존 골든 luma/greenmart는 LF). 테스트는 전부 초록(로더가 `utf-8-sig`로 읽고 JSON 파서가 EOL 무관)이라 안 보였고, 커밋 직전 첫 3바이트 대조(`7b 0d 0a` = `{`+CRLF)로 잡았다. `.gitattributes`에 `eol=lf`가 있어 git은 LF로 저장하지만, 워킹트리는 CRLF로 남아 팬텀 diff·에디터 경고·바이트 대조 혼선의 씨앗이 된다.
+- **원인**: Python 텍스트모드 쓰기(`open(mode="w")`·`Path.write_text`)의 기본 `newline=None`은 플랫폼 개행 변환을 켠다 — Windows에선 문자열의 모든 `\n`이 디스크에서 `\r\n`이 된다. 소스에 `\r`을 안 썼어도 발생하는 **무성 변환**이라, "내가 쓴 그대로 저장된다"는 가정이 깨진다.
+- **해결**: 텍스트를 바이트 그대로 쓰려면 `open(path, "w", encoding="utf-8", newline="")`(변환 차단) 또는 `write_bytes`. 빌더 emit을 `newline=""`로 교체하고, 이미 심긴 CRLF는 `b.replace(b"\r\n", b"\n")`로 정규화했다. 검증은 콘솔 텍스트가 아니라 **첫 바이트 HEX 대조**(`7b 0a` = LF vs `7b 0d 0a` = CRLF)로.
+- **재발 방지**: 글로벌 CLAUDE.md의 「파일 재생성 시 BOM·EOL 바이트 보존」 원칙의 구체 재발 사례다. **스크립트로 레포 파일을 방출할 땐 항상 `newline=""` 또는 바이너리 쓰기**로 플랫폼 변환을 끄고, 같은 디렉터리 기존 파일의 EOL을 먼저 확인해 맞춘다(레포 관례가 LF면 LF). 골든 빌더처럼 재실행되는 방출기는 한 번 고쳐두면 향후 골든에도 상속된다.
+
+---
+
 ## 🔄 갱신 정책
 
 - **1분 이상 디버깅**했으면 원인이 잡힌 직후 여기 한 항목(증상/원인/해결/재발방지)을 남긴다.

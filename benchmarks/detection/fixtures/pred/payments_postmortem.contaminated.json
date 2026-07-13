@@ -1,0 +1,82 @@
+[
+  {
+    "id": "cp1",
+    "type": "모순",
+    "severity": "high",
+    "title": "원인 뒤집힘",
+    "topic": "원인 분석",
+    "statements": [
+      {
+        "speaker": "p2",
+        "time_sec": 200,
+        "quote": "결제 승인 API 타임아웃 급증이 외부 PG사 응답 지연 때문"
+      },
+      {
+        "speaker": "p2",
+        "time_sec": 520,
+        "quote": "타임아웃 급증은 저희 커넥션 풀 설정 실수였습니다"
+      },
+      {
+        "speaker": "p2",
+        "time_sec": 520,
+        "quote": "이건 전사에 전혀 없는 완전히 지어낸 근거 문장입니다"
+      }
+    ],
+    "explanation": "일부 근거가 할루시."
+  },
+  {
+    "id": "cp2",
+    "type": "모순",
+    "severity": "high",
+    "title": "롤백/핫픽스",
+    "topic": "대응",
+    "statements": [
+      {
+        "speaker": "p1",
+        "time_sec": 360,
+        "quote": "이번 건은 롤백으로 확정합니다"
+      },
+      {
+        "speaker": "p4",
+        "time_sec": 580,
+        "quote": "실제로는 롤백 안 하고 핫픽스로 나갔습니다"
+      }
+    ],
+    "explanation": "번복을 모순으로 오라벨."
+  },
+  {
+    "id": "cp3",
+    "type": "재논의",
+    "severity": "medium",
+    "title": "근본 원인 이견",
+    "topic": "재발 방지",
+    "statements": [
+      {
+        "speaker": "p2",
+        "time_sec": 800,
+        "quote": "온콜 대응이 느렸던 게 더 큰 문제"
+      },
+      {
+        "speaker": "p4",
+        "time_sec": 840,
+        "quote": "알림이 안 울린 게 문제였다고 봐요 온콜은 정상이었고 저는 반대로"
+      }
+    ],
+    "explanation": "재정렬 인용."
+  },
+  {
+    "id": "cp4",
+    "type": "미해결",
+    "severity": "low",
+    "title": "유령 안건",
+    "topic": "마무리",
+    "statements": [
+      {
+        "speaker": "p1",
+        "time_sec": 1100,
+        "quote": "존재하지 않는 유령 안건을 지어낸 인용입니다"
+      }
+    ],
+    "explanation": "전량 할루시."
+  }
+]
