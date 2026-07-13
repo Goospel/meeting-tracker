@@ -100,6 +100,35 @@ def _is_num(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
+def _coerce_pred_time(v):
+    """예측 time_sec 관용 파싱 — 숫자문자열('760'·'760.0'·'760초')·시각('MM:SS'·'HH:MM:SS')을
+    초 float로. 실패는 None(힌트 없음, grounding이 결정적 첫 출현으로 안전 폴백 — 현행과 동일).
+
+    실제 Claude는 프롬프트가 숫자 초를 요구해도 time을 문자열/시각으로 낼 수 있다. 그때 grounding
+    힌트가 무성으로 죽으면(반복 발화처럼 speaker로 갈리지 않는 케이스에서) 정탐이 디코이 세그먼트로
+    붙어 놓침(FN)+가짜(FP)로 오채점된다. 이 관용 파싱은 그 무성 오채점을 막는 **예측 전용** 구제책 —
+    골든(strict)은 이 경로를 쓰지 않고 여전히 비숫자 time을 malformed로 거부한다. 파싱된 ±inf/NaN은
+    _is_num이 걸러 None으로(힌트 산술 오염 방지)."""
+    if _is_num(v):                                    # 이미 유한 숫자(bool 제외)면 그대로
+        return v
+    if isinstance(v, str):
+        s = v.strip().rstrip("초sS ").strip()         # 단위표기('760초'·'760s') 제거
+        if s:
+            try:
+                f = float(s)                          # '760'·'760.0'
+            except ValueError:
+                parts = s.split(":")                  # 'MM:SS'·'HH:MM:SS' → 경과 초
+                if 2 <= len(parts) <= 3 and all(p.strip().isdigit() for p in parts):
+                    f = 0.0
+                    for p in parts:
+                        f = f * 60 + int(p)
+                else:
+                    return None
+            if _is_num(f):                            # 유한 숫자만(파싱된 inf/nan 배제)
+                return f
+    return None
+
+
 def _statement_from_data(d: dict, *, strict: bool) -> Statement:
     q = d.get("quote")
     sp = d.get("speaker")
@@ -114,7 +143,7 @@ def _statement_from_data(d: dict, *, strict: bool) -> Statement:
     return Statement(                                 # 예측: 비문자열(null/숫자)은 ""로 강등
         speaker=unicodedata.normalize("NFC", sp) if isinstance(sp, str) else "",   # 화자도 NFC —
         quote=unicodedata.normalize("NFC", q) if isinstance(q, str) else "",       # NFD 힌트 무성 불발 방지
-        time_sec=ts,
+        time_sec=ts if strict else _coerce_pred_time(ts),   # 예측만 관용 파싱(골든은 원본 유지 후 위 게이트)
     )
 
 

@@ -1,0 +1,82 @@
+{
+  "_note": "mock 오염 출력(합성). 하드케이스 유발 실패모드: ① f1 정타+할루시 인용(tainted) ② cp2 모순↔번복 뒤바꿈(무상연장 라인) ③ cp3 교차화자 대립을 모순 오라벨 ④ f4 중첩 미해결 놓침 ⑤ halluc1 전량 할루시.",
+  "flags": [
+    {
+      "id": "cp1",
+      "type": "모순",
+      "statements": [
+        {
+          "speaker": "p3",
+          "quote": "저희 인프라 문제가 아니라 고객사 방화벽 설정 때문이었습니다",
+          "time_sec": 120
+        },
+        {
+          "speaker": "p3",
+          "quote": "저희 배포 스크립트 실수가 원인이 맞습니다",
+          "time_sec": 650
+        },
+        {
+          "speaker": "p3",
+          "quote": "장애는 외주 업체 탓으로 넘겼습니다"
+        }
+      ]
+    },
+    {
+      "id": "cp2",
+      "type": "번복",
+      "statements": [
+        {
+          "speaker": "p4",
+          "quote": "무상 연장은 선례가 남아서 저는 반대입니다",
+          "time_sec": 410
+        },
+        {
+          "speaker": "p4",
+          "quote": "무상 연장으로 가야 이 고객을 확실히 잡습니다",
+          "time_sec": 910
+        }
+      ]
+    },
+    {
+      "id": "cp3",
+      "type": "모순",
+      "statements": [
+        {
+          "speaker": "p2",
+          "quote": "이탈의 결정적 원인은 결국 반복된 시스템 장애입니다",
+          "time_sec": 760
+        },
+        {
+          "speaker": "p3",
+          "quote": "진짜 문제는 응대가 늦어서 신뢰를 잃은 겁니다",
+          "time_sec": 800
+        }
+      ]
+    },
+    {
+      "id": "cp4",
+      "type": "미해결",
+      "statements": [
+        {
+          "speaker": "p1",
+          "quote": "다른 고객사에도 같은 장애 이력이 있는지 전수조사를 한번 돌려봐야 할 것 같은데요",
+          "time_sec": 1030
+        }
+      ]
+    },
+    {
+      "id": "halluc1",
+      "type": "모순",
+      "statements": [
+        {
+          "speaker": "p1",
+          "quote": "매출 목표는 백억으로 잡읍시다"
+        },
+        {
+          "speaker": "p4",
+          "quote": "아니 오십억이 맞습니다"
+        }
+      ]
+    }
+  ]
+}
