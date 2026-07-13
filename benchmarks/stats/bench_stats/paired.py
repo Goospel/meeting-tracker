@@ -123,7 +123,8 @@ def cluster_sign_test(
             signs = [rng.choice((1, -1)) for _ in range(n)]
             if statistic(signs, d) >= t_obs:
                 ge += 1
-        p = ge / n_mc
+        # +1 보정: 관측(항등) 배치는 항상 ≥t_obs이므로 p≥1/(n_mc+1). 무효한 p=0 방지.
+        p = (ge + 1) / (n_mc + 1)
         method = "cluster-sign-permutation-mc"
 
     return McNemarResult(

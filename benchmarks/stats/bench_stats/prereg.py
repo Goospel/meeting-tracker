@@ -37,9 +37,14 @@ def _hash(canonical: str) -> str:
 
 
 def freeze_prereg(**fields) -> PreregConfig:
-    """분석계획 필드를 동결. 버전·스키마를 해시 콘텐츠에 포함(버전 변경도 해시 변경)."""
+    """분석계획 필드를 동결. 버전·스키마를 해시 콘텐츠에 포함(버전 변경도 해시 변경).
+
+    data는 canonical(JSON) 경유로 정규화한다 — freeze의 raw tuple과 load의 JSON list가
+    갈라져 라운드트립이 깨지지 않도록 단일 출처(canonical)로 맞춘다.
+    """
     canonical = _canonical(fields)
-    return PreregConfig(canonical=canonical, content_hash=_hash(canonical), data=dict(fields))
+    normalized = json.loads(canonical)["fields"]
+    return PreregConfig(canonical=canonical, content_hash=_hash(canonical), data=normalized)
 
 
 def prereg_hash(cfg: PreregConfig) -> str:

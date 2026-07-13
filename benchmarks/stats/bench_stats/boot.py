@@ -117,15 +117,25 @@ def cluster_bootstrap_ci(
     method='auto': 전열거/MC percentile(BCa 자동 안 탐). method='bca': n≥bca_min·비퇴화에서만
     실제 BCa, 아니면 'degraded_percentile' 또는 point-mass 퇴화(nan). 소 n엔 granular 경고 강제.
     """
-    n = len(clusters)
-    if n == 0:
+    if not (0.0 < level < 1.0):
+        raise ValueError(f"level∈(0,1) 필요 — got {level} (조용한 퇴화 구간 금지)")
+    all_clusters = list(clusters)
+    if not all_clusters:
         raise ValueError("빈 코퍼스 — 부트스트랩 불가")
+    # n=0 회의는 지표에 기여하지 않아 리샘플 통계량을 NaN으로 오염시킨다(pooled_proportion_ci와
+    # 동일하게) 재샘플 단위에서 제외 — 조용한 NaN 금지.
+    clusters = [c for c in all_clusters if c.n > 0]
+    if not clusters:
+        raise ValueError("전 클러스터 n=0 — 분모 0, 부트스트랩 불가(조용한 NaN 금지)")
+    n = len(clusters)
     stat = _stat(estimand)
     point = stat(list(clusters))
     vals, n_distinct, _ = _resample_distribution(
         clusters, stat, max_exact=max_exact_clusters, n_boot=n_boot, seed=seed)
 
     warnings: list[str] = []
+    if len(all_clusters) > n:
+        warnings.append(f"빈 회의(n=0) {len(all_clusters) - n}개 재샘플에서 제외(빈 회의)")
     if n_distinct <= _GRANULAR_MAX:
         warnings.append(
             f"granular: n_distinct_resamples={n_distinct} — 결정성(seed)≠통계적 정밀; "

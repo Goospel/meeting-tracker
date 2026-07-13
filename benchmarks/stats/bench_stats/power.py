@@ -50,7 +50,8 @@ def mde_exact_binomial(
         raise ValueError(f"p0∈(0,1) — got {p0}")
     if deff < 1.0:
         raise ValueError(f"deff≥1 — got {deff}")
-    n_eff = int(n_items // deff)
+    # float 바닥나눗셈은 표현오차로 off-by-one(예: int(11//1.1)=9, 참 floor=10) → eps 스냅.
+    n_eff = math.floor(n_items / deff + 1e-9)
     detail = {"deff": deff, "deff_note": "사전등록 가정(추정 아님)", "n_items": n_items}
     if n_eff < 1:
         return MDE(None, "n_eff<1", seed=0, n_eff=n_eff, detail=detail)
@@ -76,15 +77,20 @@ def mde_exact_binomial(
 
 # ── (A) 쌍체 검정력 몬테카를로 ───────────────────────────────────────────────
 def _simulate_paired_dataset(rng, n_clusters, p_a, p_b, m, icc):
-    """icc(회의내 상관) 근사: 회의별 flag가 확률 icc로 회의공용 동전을 공유."""
+    """icc(회의내 상관) 근사: 회의별 flag가 확률 λ로 회의공용 동전을 공유.
+
+    두 flag가 공용 동전을 쓰는 건 둘 다 독립적으로 공유를 택할 때(확률 λ²)뿐이라 실현 상관은
+    λ²다. 목표 상관 icc를 얻으려면 λ=√icc를 쓴다(λ=icc면 상관이 icc²로 한 자릿수 붕괴).
+    """
+    lam = math.sqrt(icc)
     clusters = []
     for ci in range(n_clusters):
         shared_a = rng.random() < p_a
         shared_b = rng.random() < p_b
         a, b = [], []
         for _ in range(m):
-            a.append(shared_a if rng.random() < icc else (rng.random() < p_a))
-            b.append(shared_b if rng.random() < icc else (rng.random() < p_b))
+            a.append(shared_a if rng.random() < lam else (rng.random() < p_a))
+            b.append(shared_b if rng.random() < lam else (rng.random() < p_b))
         clusters.append(PairedClusterBinary(f"m{ci}", tuple(a), tuple(b)))
     return clusters
 
@@ -96,7 +102,16 @@ def simulate_paired_power(
     """H1(B=baseline+effect, 회의내 상관 icc)에서 사전등록 쌍체치환검정의 검정력.
 
     floor_p=2/2ⁿ>alpha면 effect 무관 power=0.0 강제(구조적 유의 불가).
+    baseline+effect>1이면 조용한 클리핑(명목 effect≠실제) 대신 fail-loud.
     """
+    if not (0.0 <= baseline <= 1.0):
+        raise ValueError(f"baseline∈[0,1] — got {baseline}")
+    if not (0.0 <= icc <= 1.0):
+        raise ValueError(f"icc∈[0,1] — got {icc}")
+    if not (0.0 <= baseline + effect <= 1.0 + 1e-12):
+        raise ValueError(
+            f"baseline+effect가 확률 범위[0,1] 이탈 — p_b={baseline + effect} "
+            "(효과를 조용히 클리핑하면 보고 effect가 실제와 어긋남)")
     floor_p = min_attainable_two_sided_p(n_clusters)
     if floor_p > alpha:
         return PowerResult(effect, 0.0, floor_p, False, seed, n_clusters, alpha)
@@ -120,6 +135,9 @@ def mde_paired(
     """effect_grid 오름차순 스캔 → power≥target 최소 effect. floor 미달이면 mde=None."""
     floor_p = min_attainable_two_sided_p(n_clusters)
     grid = tuple(sorted(effect_grid))
+    if grid and baseline + grid[-1] > 1.0 + 1e-9:
+        raise ValueError(
+            f"effect_grid가 p_b>1 유발 — baseline={baseline}, max effect={grid[-1]} (확률 범위 초과)")
     if floor_p > alpha:
         return MDE(None, "alpha_unreachable_at_n", seed=seed, grid=grid,
                    detail={"floor_p": floor_p, "grid_power": {e: 0.0 for e in grid}})
@@ -160,7 +178,7 @@ def collection_target(
     target_power: float = 0.8, half_width_target: float | None = None,
     mean_cluster_size: float = 5.0, icc: float = 0.1,
     baseline: float | None = None, effect: float | None = None,
-    n_sim: int = 1000, seed: int = 0,
+    n_sim: int = 1000, seed: int = 0, max_clusters: int = 40,
 ) -> CollectionTarget:
     """objective별 필요 회의수. n_additional=max(0, n_required-n_current).
 
@@ -180,14 +198,22 @@ def collection_target(
         if baseline is None or effect is None:
             raise ValueError("comparison_power엔 baseline·effect 필요")
         n = comparison_floor_n(alpha)
-        while n <= 40:
+        reached = False
+        while n <= max_clusters:
             pr = simulate_paired_power(
                 n_clusters=n, baseline=baseline, effect=effect,
                 flags_per_cluster=round(mean_cluster_size), icc=icc,
                 alpha=alpha, n_sim=n_sim, seed=seed)
             if pr.power >= target_power:
+                reached = True
                 break
             n += 1
+        if not reached:
+            # 조용히 시뮬한 적 없는 max_clusters+1을 반환하지 않는다 — _n_iid_for_precision과 동일 fail-loud.
+            raise ValueError(
+                f"comparison_power: target_power={target_power}가 n≤{max_clusters} 내 도달 불가 "
+                f"(baseline={baseline}, effect={effect}, icc={icc}) — "
+                "max_clusters를 키우거나 effect/target 재조정")
         return CollectionTarget(
             objective, n, max(0, n - n_current), deff, icc,
             detail={"icc_assumed": icc, "baseline": baseline, "effect": effect,

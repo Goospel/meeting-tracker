@@ -12,6 +12,13 @@
 
 ## 2026-07-13
 
+### fix · 통계 판정층 max-effort 리뷰 — 판정 정확성 결함 15종 수정 ([PR #15](https://github.com/Goospel/meeting-tracker/pull/15), 동일 브랜치)
+- 커밋 `3aedc0f` 직후 `/code-review ultra`(클라우드 미가동 → 로컬 max-effort 폴백: 10앵글 파인더 → 1표 검증 → 스윕)로 신설 `bench_stats`를 감사. 판정층의 **존재 이유(극소 n 정직성)를 정면으로 깨는 오판정** 다수 확정 → TDD(Red 19 → Green)로 수정 후 **15 스킵틱 적대적 검증 전부 SOUND**(무회귀). 전체 **111테스트**(92+19).
+  - **판정 오류(가장 위험)**: ① `verdict_paired`가 recall(성공/n)이 아닌 원 카운트 차를 비교 → 분모 다르면 **열등한 감지기를 SIGNIFICANT로 반대방향 오판정**(B가 전 회의 우수한데 A 유의) → n_a≠n_b fail-loud. ② 빈 회의(n=0)가 `n_clusters`를 부풀려 **추론 플로어 우회**(3실회의+3빈=INCONCLUSIVE) → 모든 추론을 유효회의(n>0)수 기준으로. ③ 분산 0 파국이 FAILS보다 먼저 DEGENERATE로 삼켜짐(0% recall이 "무변동") → 파국 검사를 앞으로. ④ `k=round(point·n)` 은행가반올림이 .5 tie에서 거짓 MEETS/FAILS → round-half-down(하한)/up(상한). ⑤ 동점 회의(d=0)가 부호검정 floor의 n 부풀림 → n_informative 기준. ⑥ 중복 cluster_id 무성 드롭 → fail-loud.
+  - **부트스트랩·검정력**: ⑦ `cluster_bootstrap_ci`가 n=0 회의 미필터 → 리샘플 NaN이 CI 경계로 누출(pooled와 불일치) → 필터+fail-loud. ⑧ icc 생성모형이 상관을 **icc²로 실현**(한 자릿수 과소, 검정력 과대낙관) → λ=√icc. ⑨ `comparison_power` 도달 불가 시 **시뮬 안 한 n=41 조용히 반환** → fail-loud(+`max_clusters`). ⑩ baseline+effect>1 무성 클리핑(명목≠실제) → 검증 raise. ⑪ MC 치환 p=ge/n_mc에 +1 보정 없어 **무효 p=0** → (ge+1)/(n_mc+1). ⑫ `int(n//deff)` float off-by-one → eps-스냅 floor.
+  - **견고성**: ⑬ `cluster_bootstrap_ci` level 미검증(0/1에서 퇴화·크래시) → 가드. ⑭ prereg tuple 필드 dump/load 라운드트립 타입 불일치 → canonical(JSON) 단일출처 정규화. ⑮ `ClusterBinary` 소수 카운트 허용 → 정수 강제.
+  - **함정 `→ T-037`**: ④ 첫 수정(양방향 floor/ceil)이 상한을 무조건 넓혀 **파국 민감도를 죽여** 기존 테스트 회귀 — 단일 정수 k로 두 경계를 동시에 보수화 불가, tie만 가르는 방향 반올림으로 재수정. 리포 전체 507(detection 229·stt 167·stats 111).
+
 ### feat · 통계 판정층(ⓑ) — 극소표본에서 정직한 CI·검정·MDE (신설 공유 패키지 `bench_stats`) ([PR #15](https://github.com/Goospel/meeting-tracker/pull/15))
 - 감지·STT 벤치가 공유하는 **통계 판정층**을 신설(`benchmarks/stats/`, `bench_stats`). 로드맵의 세 요소(McNemar·clustered bootstrap·사전등록 MDE)를 극소표본(회의 3·flag 15) 현실에 **정직하게** 안착. **판단 패널 워크플로우**(4 학파 독립 설계 → 소표본 타당성 적대 검증 → 종합)로 방법론 확정 후 TDD 구현.
   - **핵심 통찰 — 유효표본은 flag 15가 아니라 회의(cluster) 3**: flag는 회의 안에 군집돼 독립이 아니므로 모든 추론은 회의 수준에서만 정당. 이 층의 임무는 "얼마나 좋은가" 판정이 아니라 (a) 극소 n에서 방어 불가능한 주장을 fail-loud 거부 + (b) "얼마나 더 모아야 말할 수 있는가"를 데이터 독립 공식으로 답.

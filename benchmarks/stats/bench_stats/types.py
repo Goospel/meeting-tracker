@@ -23,6 +23,10 @@ class ClusterBinary:
     n: int
 
     def __post_init__(self):
+        if not isinstance(self.successes, int) or not isinstance(self.n, int):
+            raise TypeError(
+                f"successes/n은 정수 — {self.cluster_id}: "
+                f"successes={self.successes!r}, n={self.n!r} (소수 카운트 금지)")
         if self.n < 0:
             raise ValueError(f"n≥0 필요 — {self.cluster_id}: n={self.n}")
         if self.successes < 0 or self.successes > self.n:
