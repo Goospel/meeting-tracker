@@ -1,0 +1,91 @@
+{
+  "_note": "mock 완벽 재현(전부 합성, 실제 API 아님). f5는 time_sec로 반복발화 근거 출현(s18)을 지정.",
+  "flags": [
+    {
+      "id": "pf1",
+      "type": "모순",
+      "statements": [
+        {
+          "speaker": "p3",
+          "time_sec": 120,
+          "quote": "저희 인프라 문제가 아니라 고객사 방화벽 설정 때문이었습니다"
+        },
+        {
+          "speaker": "p3",
+          "time_sec": 650,
+          "quote": "저희 배포 스크립트 실수가 원인이 맞습니다"
+        }
+      ]
+    },
+    {
+      "id": "pf2",
+      "type": "번복",
+      "statements": [
+        {
+          "speaker": "p1",
+          "time_sec": 460,
+          "quote": "보상은 SLA 크레딧 한 달치 10%로 확정합시다"
+        },
+        {
+          "speaker": "p4",
+          "time_sec": 910,
+          "quote": "무상 3개월 연장으로 고객사에 안내하죠"
+        }
+      ]
+    },
+    {
+      "id": "pf3",
+      "type": "모순",
+      "statements": [
+        {
+          "speaker": "p4",
+          "time_sec": 410,
+          "quote": "무상 연장은 선례가 남아서 저는 반대입니다"
+        },
+        {
+          "speaker": "p4",
+          "time_sec": 910,
+          "quote": "무상 연장으로 가야 이 고객을 확실히 잡습니다"
+        }
+      ]
+    },
+    {
+      "id": "pf4",
+      "type": "미해결",
+      "statements": [
+        {
+          "speaker": "p3",
+          "time_sec": 650,
+          "quote": "정식 사후 보고서는 다음 회의에서 따로 다루죠"
+        }
+      ]
+    },
+    {
+      "id": "pf5",
+      "type": "재논의",
+      "statements": [
+        {
+          "speaker": "p2",
+          "time_sec": 760,
+          "quote": "이탈의 결정적 원인은 결국 반복된 시스템 장애입니다"
+        },
+        {
+          "speaker": "p3",
+          "time_sec": 800,
+          "quote": "진짜 문제는 응대가 늦어서 신뢰를 잃은 겁니다"
+        }
+      ]
+    },
+    {
+      "id": "pf6",
+      "type": "미해결",
+      "statements": [
+        {
+          "speaker": "p1",
+          "time_sec": 1030,
+          "quote": "다른 고객사에도 같은 장애 이력이 있는지 전수조사를 한번 돌려봐야 할 것 같은데요"
+        }
+      ]
+    }
+  ]
+}

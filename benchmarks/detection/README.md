@@ -40,11 +40,12 @@ detect_bench/
   detect.py     감지 어댑터 — 전사 → 프롬프트 → 감지 포트(리플레이/Claude) → 응답 파싱 → pred flags
   cliutil.py    CLI 공용 유틸 — force_utf8_stdio (T-027 단일 출처)
 fixtures/
-  golden/luma_meeting.json          골든 회의 1건 (전사 25세그 + flag 4종) — docs/data-schema.json 재사용
-  pred/luma_meeting.faithful.json   mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
-  pred/luma_meeting.contaminated.json  mock 예측: 4가지 실패모드 심음
-  response/luma_meeting.claude.txt  캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
-tests/          168개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터 + 적대적 리뷰 회귀)
+  golden/luma_meeting.json          골든 회의 1건 (기준선, 전사 25세그 + 4유형 한 건씩) — docs/data-schema.json 재사용
+  golden/greenmart_meeting.json     골든 회의 2건 (하드케이스, 전사 26세그 + flag 6종) — 중첩·반복발화·모순↔번복 근접
+  pred/*.faithful.json              mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
+  pred/*.contaminated.json          mock 예측: 실패모드 심음 (오타입·할루시·놓친·tainted)
+  response/*.claude.txt             캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
+tests/          195개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스 + 적대적 리뷰 회귀)
 ```
 
 ## 감지 어댑터 (전사 → pred JSON)
@@ -88,8 +89,10 @@ python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred 
 
 - **실제 Claude API 실호출** — 어댑터(프롬프트·파싱·포트)는 완성됐고 리플레이로 관통 검증됨.
   남은 건 `--detector claude` 실호출뿐(`ANTHROPIC_API_KEY` 대기). 코드 변경 없이 포트만 스왑.
-- **골든 회의 2건째** — 하드케이스(중첩 모순, 화자 혼동) 보강용.
+- **골든 회의 3건째** — 경계 span·tier2 퍼지 grounding을 실제 스트레스하는 하드케이스(인접 동일화자 세그먼트로 STT 분할 모사). 1·2건째는 tier1 부분일치+time 분해에 집중돼 그 경로가 미발화.
 - **통계 판정층** — 1단계와 공유(clustered bootstrap CI 등). 다중 회의 수집 후.
+
+> 골든 2건째(`greenmart_meeting.json`)는 **하드케이스**로 추가됨 — 중첩(한 라인 2 flag)·반복발화 분해(디코이 vs 근거 time 갈림)·모순↔번복 근접(type_confusion)·교차화자 near-miss·같은 type 복수. judge panel로 선정, faithful/contaminated/리플레이로 어댑터 관통.
 
 ## ⚠️ 데이터 정직성
 
