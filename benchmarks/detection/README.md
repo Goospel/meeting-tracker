@@ -42,10 +42,11 @@ detect_bench/
 fixtures/
   golden/luma_meeting.json          골든 회의 1건 (기준선, 전사 25세그 + 4유형 한 건씩) — docs/data-schema.json 재사용
   golden/greenmart_meeting.json     골든 회의 2건 (하드케이스, 전사 26세그 + flag 6종) — 중첩·반복발화·모순↔번복 근접
+  golden/payments_postmortem.json   골든 회의 3건 (하드케이스, 전사 27세그 + flag 5종) — 인접 동일화자 STT 분할로 경계 span·tier2를 채점 경로에서 스트레스
   pred/*.faithful.json              mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
   pred/*.contaminated.json          mock 예측: 실패모드 심음 (오타입·할루시·놓친·tainted)
   response/*.claude.txt             캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
-tests/          195개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스 + 적대적 리뷰 회귀)
+tests/          216개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스 + 적대적 리뷰 회귀)
 ```
 
 ## 감지 어댑터 (전사 → pred JSON)
@@ -89,10 +90,11 @@ python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred 
 
 - **실제 Claude API 실호출** — 어댑터(프롬프트·파싱·포트)는 완성됐고 리플레이로 관통 검증됨.
   남은 건 `--detector claude` 실호출뿐(`ANTHROPIC_API_KEY` 대기). 코드 변경 없이 포트만 스왑.
-- **골든 회의 3건째** — 경계 span·tier2 퍼지 grounding을 실제 스트레스하는 하드케이스(인접 동일화자 세그먼트로 STT 분할 모사). 1·2건째는 tier1 부분일치+time 분해에 집중돼 그 경로가 미발화.
+- **경계 span·tier2 gap 재설계** — 골든 3건째(`payments_postmortem.json`)가 두 gap을 현행 동작으로 스트레스·pin했다: ① 모호성 정책 비대칭(단일=첫출현 추측 vs 스팬=거부) ② 경계 퍼지 tier 부재(창 verbatim 전용 → 경계 인용 1단어 의역이면 전량 소실). 둘 다 매칭 의미론 변경이라 **실측 데이터 확보 후 재설계**(test_gap1/gap2가 재설계 시 알림 역할).
 - **통계 판정층** — 1단계와 공유(clustered bootstrap CI 등). 다중 회의 수집 후.
 
-> 골든 2건째(`greenmart_meeting.json`)는 **하드케이스**로 추가됨 — 중첩(한 라인 2 flag)·반복발화 분해(디코이 vs 근거 time 갈림)·모순↔번복 근접(type_confusion)·교차화자 near-miss·같은 type 복수. judge panel로 선정, faithful/contaminated/리플레이로 어댑터 관통.
+> 골든 2건째(`greenmart_meeting.json`)는 **하드케이스** — 중첩(한 라인 2 flag)·반복발화 분해(디코이 vs 근거 time 갈림)·모순↔번복 근접(type_confusion)·교차화자 near-miss·같은 type 복수. judge panel로 선정.
+> 골든 3건째(`payments_postmortem.json`)는 **인접 동일화자 세그먼트(STT 분할 모사)**로 경계 span grounding·tier2 퍼지를 **채점 경로에서** 스트레스한 첫 골든 — f1 첫 진술이 s6·s7에 쪼개진 경계 인용을 예측은 하나로 내고(span 회수) 골든은 세그먼트별로 라벨해 같은 segset로 매칭. 5R 보류 2건 gap을 현행 동작 pin.
 
 ## ⚠️ 데이터 정직성
 
