@@ -7,8 +7,8 @@
 (크레덴셜 0 관통 + 실 어댑터는 생성 시점 단일 게이트), 순수 결정적 코어, fail-loud, TDD.
 
 모듈(구축 순서):
-  state        상태머신 순수 코어 (이 PR) — 상태·전이·불변식·멱등·실패/재시도, IO 0
-  repository   영속화 — JobRepository(InMemory fake + stdlib sqlite3)
+  state        상태머신 순수 코어 — 상태·전이·불변식·멱등·실패/재시도, IO 0 (+계보 로드검증)
+  repository   영속화 (이 PR) — JobRepository(InMemory fake + stdlib sqlite3), 낙관적 동시성
   stt          SttPort — ReplaySttPort(크레덴셜0) + ClovaSttPort(게이트)
   ingest       transcript_to_meeting — 원시 STT 전사 → 감지 가능한 meeting dict
   orchestrator run_pipeline — 위를 구동, 분석 스텝은 detect_bench.run_detection 재사용
