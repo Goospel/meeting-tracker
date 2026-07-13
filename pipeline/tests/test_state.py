@@ -4,6 +4,8 @@ TDD: 엣지·에러 케이스(불법 전이·터미널 거부·멱등)를 happy 
 이 코어는 크레덴셜 0·부작용 0 — 오케스트레이터(PR4)가 각 전이 뒤 영속(PR2)을 붙인다.
 """
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from pipeline_core.state import (
@@ -122,9 +124,12 @@ def test_max_attempts_exhausted_goes_permanently_failed():
 
 
 def test_fail_from_non_active_stage_is_illegal():
-    for s in (State.UPLOADED, State.TRANSCRIBED, State.ANALYZED):
+    # 유효 ref를 줘 진입 불변식은 충족 → FAIL이 '외부 작업 단계 아님'으로 거부되는지를 순수 검증.
+    for j in (_job(State.UPLOADED),
+              _job(State.TRANSCRIBED, transcript_ref="t/1"),
+              _job(State.ANALYZED, transcript_ref="t/1", result_ref="r/1")):
         with pytest.raises(IllegalTransition):
-            advance(_job(s), Event.FAIL, clock=FixedClock(T0), error="x")
+            advance(j, Event.FAIL, clock=FixedClock(T0), error="x")
 
 
 def test_retry_from_non_failed_is_illegal():
@@ -133,11 +138,21 @@ def test_retry_from_non_failed_is_illegal():
 
 
 # ── 터미널 상태 ───────────────────────────────────────────────────────
-@pytest.mark.parametrize("ev", list(Event))
-def test_permanently_failed_rejects_all_events(ev):
+# PERMANENTLY_FAILED를 만든 이벤트는 RETRY(예산 소진). 그 RETRY의 재전달만 멱등 no-op이고,
+# 나머지 이벤트는 전부 거부 — DONE(만든 이벤트=COMMIT)과 대칭.
+@pytest.mark.parametrize("ev", [e for e in Event if e is not Event.RETRY])
+def test_permanently_failed_rejects_non_maker_events(ev):
     with pytest.raises(IllegalTransition):
         advance(_job(State.PERMANENTLY_FAILED, failed_from=State.ANALYZING),
                 ev, clock=FixedClock(T0), error="x", transcript_ref="t", result_ref="r")
+
+
+def test_permanently_failed_noops_duplicate_retry():
+    # at-least-once: PERMANENTLY_FAILED를 만든 그 RETRY의 재전달(크래시-전-ack 재전송)은
+    # 멱등 no-op이어야 한다 — DONE+재-COMMIT과 대칭(docstring 규칙 b의 균일 적용).
+    pf = _job(State.PERMANENTLY_FAILED, failed_from=State.ANALYZING, attempts=3)
+    j = advance(pf, Event.RETRY, clock=FixedClock("later"), max_attempts=3)
+    assert j == pf                              # 재전달 흡수 — raise 아님
 
 
 def test_done_noops_duplicate_commit():
@@ -175,6 +190,49 @@ def test_analysis_done_without_result_ref_is_illegal():
         advance(_job(State.ANALYZING), Event.ANALYSIS_DONE, clock=FixedClock(T0))
 
 
+def test_duplicate_analysis_done_on_analyzed_is_idempotent_noop():
+    # 유료 분석 스테이지의 재전달 흡수 — 이미 ANALYZED면 중복 ANALYSIS_DONE는 no-op.
+    # (STT_CALLBACK만 커버돼 있던 갭: 커밋된 result_ref를 stale 값으로 덮어쓰지 않음을 고정.)
+    j0 = _job(State.ANALYZED, transcript_ref="t/1", result_ref="r/ORIG")
+    j1 = advance(j0, Event.ANALYSIS_DONE, clock=FixedClock("later"), result_ref="r/DUP")
+    assert j1 == j0
+    assert j1.result_ref == "r/ORIG"            # 재적용은 덮어쓰지 않음
+
+
+# ── 상태 진입 불변식 (손상 rehydrate 균일 방어) ───────────────────────
+# 전진 인자 검사만으론 '직접 rehydrate된 빈 전사/결과 잡'을 못 막는다. advance()가 진입점과
+# 재개 결과에서 상태 불변식(_STATE_REQUIRES: TRANSCRIBED=전사·ANALYZED=결과)을 재확인해야 한다.
+def test_commit_on_analyzed_missing_result_ref_is_illegal():
+    # result_ref 없는 ANALYZED를 COMMIT하면 '빈 결과'가 DONE(정확히-한번 seam)으로 커밋됨 → fail-loud.
+    corrupt = _job(State.ANALYZED, transcript_ref="t/1", result_ref=None)
+    with pytest.raises(IllegalTransition):
+        advance(corrupt, Event.COMMIT, clock=FixedClock(T0))
+
+
+def test_forward_from_transcribed_missing_transcript_ref_is_illegal():
+    # transcript_ref 없는 TRANSCRIBED에서 START_ANALYSIS로 전진하면 '빈 전사 위 분석' → fail-loud.
+    corrupt = _job(State.TRANSCRIBED, transcript_ref=None)
+    with pytest.raises(IllegalTransition):
+        advance(corrupt, Event.START_ANALYSIS, clock=FixedClock(T0))
+
+
+def test_any_event_on_corrupt_transcribed_is_illegal():
+    # 이벤트 종류 무관 — 빈 전사 TRANSCRIBED 잡은 어느 이벤트로도 전진 불가(진입점 균일 방어).
+    corrupt = _job(State.TRANSCRIBED, transcript_ref=None)
+    for ev in (Event.STT_CALLBACK, Event.START_ANALYSIS, Event.COMMIT):
+        with pytest.raises(IllegalTransition):
+            advance(corrupt, ev, clock=FixedClock(T0),
+                    transcript_ref="t", result_ref="r")
+
+
+def test_valid_states_pass_invariant_guard_no_false_positive():
+    # 무결 잡은 통과 — 가드가 정상 흐름을 오탐하지 않음(회귀 방지).
+    ok_t = _job(State.TRANSCRIBED, transcript_ref="t/1")
+    assert advance(ok_t, Event.START_ANALYSIS, clock=FixedClock(T0)).state is State.ANALYZING
+    ok_a = _job(State.ANALYZED, transcript_ref="t/1", result_ref="r/1")
+    assert advance(ok_a, Event.COMMIT, clock=FixedClock(T0)).state is State.DONE
+
+
 def test_forward_event_on_failed_is_illegal():
     with pytest.raises(IllegalTransition):
         advance(_job(State.FAILED, failed_from=State.ANALYZING, attempts=1),
@@ -186,6 +244,23 @@ def test_retry_budget_boundary_resumes_when_attempts_below_max():
                   error="x", transcript_ref="t/1")
     j = advance(failed, Event.RETRY, clock=FixedClock(T0), max_attempts=3)
     assert j.state is State.TRANSCRIBED         # 2 < 3 → 재개
+
+
+def test_retry_resume_requires_transcript_ref_fail_loud():
+    # 손상 rehydrate(failed_from=ANALYZING인데 transcript_ref 없음): TRANSCRIBED로 재개하면
+    # '빈 전사 위 재감지'가 되므로 fail-loud. 전진 STT_CALLBACK 경로와 같은 불변식을 재개에도 강제.
+    corrupt = _job(State.FAILED, failed_from=State.ANALYZING, attempts=1,
+                   error="x", transcript_ref=None)
+    with pytest.raises(IllegalTransition):
+        advance(corrupt, Event.RETRY, clock=FixedClock(T0))
+
+
+def test_retry_resume_to_uploaded_needs_no_transcript_ref():
+    # 대조: TRANSCRIBING 실패는 UPLOADED로 재개 — UPLOADED 진입 불변식엔 transcript_ref 불요.
+    failed = _job(State.FAILED, failed_from=State.TRANSCRIBING, attempts=1,
+                  error="x", transcript_ref=None)
+    j = advance(failed, Event.RETRY, clock=FixedClock(T0))
+    assert j.state is State.UPLOADED            # 손상 아님 — 정상 재개
 
 
 def test_transcribing_failure_retry_clears_failed_from_and_error():
@@ -217,8 +292,9 @@ def test_multi_cycle_retry_until_permanently_failed():
 
 def test_job_coerces_string_state_and_failed_from_to_enum():
     # PR2가 sqlite에서 문자열로 rehydrate해도 identity(`is`) 재개 경로가 성립해야 한다.
+    # transcript_ref는 유효한 잡의 전제(ANALYZING까지 갔으면 전사 존재) — 재개 불변식 충족.
     j = Job(id="x", state="failed", audio_ref="a", failed_from="analyzing",
-            attempts=1, error="e", ts=T0)
+            attempts=1, error="e", ts=T0, transcript_ref="t/1")
     assert j.state is State.FAILED
     assert j.failed_from is State.ANALYZING
     r = advance(j, Event.RETRY, clock=FixedClock(T0))
@@ -245,6 +321,26 @@ def test_transition_updates_ts_from_clock():
     assert j.ts == "T-NEW"
 
 
+def test_fail_updates_ts_from_clock():
+    # FAIL 분기도 ts를 주입 Clock에서 갱신 — PR5 백오프/타임아웃이 이 필드에 의존.
+    j = advance(_job(State.ANALYZING, ts="old"), Event.FAIL,
+                clock=FixedClock("T-FAIL"), error="x")
+    assert j.ts == "T-FAIL"
+
+
+def test_retry_resume_updates_ts_from_clock():
+    failed = _job(State.FAILED, failed_from=State.ANALYZING, attempts=1,
+                  error="x", transcript_ref="t/1", ts="old")
+    j = advance(failed, Event.RETRY, clock=FixedClock("T-RETRY"))
+    assert j.state is State.TRANSCRIBED and j.ts == "T-RETRY"
+
+
+def test_retry_exhausted_updates_ts_from_clock():
+    failed = _job(State.FAILED, failed_from=State.ANALYZING, attempts=3, ts="old")
+    j = advance(failed, Event.RETRY, clock=FixedClock("T-PF"), max_attempts=3)
+    assert j.state is State.PERMANENTLY_FAILED and j.ts == "T-PF"
+
+
 def test_sequential_idsource_increments_deterministically():
     ids = SequentialIdSource()
     assert [ids.new_id(), ids.new_id(), ids.new_id()] == ["job-1", "job-2", "job-3"]
@@ -252,5 +348,6 @@ def test_sequential_idsource_increments_deterministically():
 
 def test_job_is_frozen_immutable():
     j = _job(State.UPLOADED)
-    with pytest.raises(Exception):              # frozen dataclass → FrozenInstanceError
+    with pytest.raises(FrozenInstanceError):     # 구체 예외 — 무관한 에러로 통과 방지
         j.state = State.DONE
+    assert j.state is State.UPLOADED             # 변경 시도가 필드를 건드리지 않았음
