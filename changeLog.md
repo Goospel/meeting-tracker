@@ -12,6 +12,13 @@
 
 ## 2026-07-13
 
+### feat · 실 Claude API 실호출 실측 — 골든 3건 종합(Opus 4.8) ([PR #14](https://github.com/Goospel/meeting-tracker/pull/14))
+- 어댑터(PR #11)가 완성된 뒤 크레덴셜만 대기하던 **실호출 실측**을 처음 수행. 골든 3건(luma 기준선·greenmart 이탈대응·payments 경계) 전사를 `--detector claude`(Opus 4.8)로 실감지 → 채점. 목업(faithful=만점 설계) 대신 실제 모델이 몇 건을 어떻게 맞히는지 측정.
+  - **종합 정밀도 1.00 · 재현율 0.87**(15 flag 중 TP 13 / FP 0 / FN 2). 세 회의 모두 **가짜 감지·할루시 인용·타입 혼동 0** — Claude가 "흐름단절"이라 찍은 13건은 전부 진짜.
+  - **놓친 2건은 전부 재현율이며 경계가 겹치는 애매한 케이스**: greenmart f3(p4의 무상연장 반대→찬성 **자기모순**이 팀 결정 **번복**에 흡수돼 개별 모순 미표기)·payments f3(미래 약속형 RCA 미해결을 '후속 있음=해결됨'으로 읽음). 즉 실 감지기 약점은 **과잉감지가 아니라 겹치는 경계의 과소감지** — 오탐으로 사용자를 괴롭히기보다 미묘한 중첩 단절을 놓치는, 제품상 유리한 실패 방향.
+- **동결 스냅샷 + 채점 회귀 고정**: LLM 출력은 비결정적이라 실호출을 그대로 재현 못 함 → pred 3건을 `measurements/`에 LF로 동결(`→ T-036` EOL 재확인 — CLI `write_text`도 CRLF라 바이트 정규화). 채점기는 순수·결정적이라 동결 pred를 재채점하면 항상 같은 표 → `test_measured_real.py`(13테스트)가 grounding/score 회귀를 **실 API 재호출 없이** 잡는다.
+- **데이터 정직성 분리**: `fixtures/`(합성 mock — 채점기 검증용)와 `measurements/`(실 API 산출)를 디렉터리·README로 명확히 구분(어떤 성능도 mock으로 주장하지 않음 vs 실측은 출처·모델·일자 명기). 감지 229테스트(216 → +13).
+
 ### feat · 골든 회의 3건째 — 경계 span·tier2 하드케이스(결제 장애 회고) ([PR #13](https://github.com/Goospel/meeting-tracker/pull/13))
 - 골든 1·2는 모든 인용이 tier1 부분일치+time 분해 한 경로에 몰려 **경계 span grounding·tier2 퍼지가 채점 파이프라인에서 발화한 적이 없었다**(단위 테스트만 커버). 이 세 번째 골든 `payments_postmortem.json`(27전사·5flag)은 **인접 동일화자 세그먼트(STT가 한 발화를 쪼갠 것을 모사)**를 넣어 그 두 경로를 **채점 경로에서** 스트레스한다.
   - **경계 span(채점에서 span 타는 첫 골든)**: f1의 첫 진술이 s6·s7(같은 화자 p2 연속)에 쪼개짐 → 예측은 경계 인용 하나로 내 `ground_quote_span`이 `{s6,s7}` 회수, 골든은 span=False라 세그먼트별로 쪼개 라벨 → 같은 segset `{s6,s7,s14}`로 수렴해 매칭.

@@ -46,7 +46,9 @@ fixtures/
   pred/*.faithful.json              mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
   pred/*.contaminated.json          mock 예측: 실패모드 심음 (오타입·할루시·놓친·tainted)
   response/*.claude.txt             캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
-tests/          216개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스 + 적대적 리뷰 회귀)
+measurements/   실제 Claude(Opus 4.8) 실호출 감지 결과(동결 스냅샷) + 종합표·해석 — fixtures와 달리 실 API 산출
+  *.pred.json                       골든 3건 실측 pred (2026-07-13, 재채점은 결정적·크레덴셜 0)
+tests/          229개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터·하드케이스·실측 회귀 + 적대적 리뷰)
 ```
 
 ## 감지 어댑터 (전사 → pred JSON)
@@ -88,8 +90,9 @@ python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred 
 
 ## 스코프 경계 — 크레덴셜/다음 단계로 미룬 것
 
-- **실제 Claude API 실호출** — 어댑터(프롬프트·파싱·포트)는 완성됐고 리플레이로 관통 검증됨.
-  남은 건 `--detector claude` 실호출뿐(`ANTHROPIC_API_KEY` 대기). 코드 변경 없이 포트만 스왑.
+- ✅ **실제 Claude API 실호출** — 완료(PR #14). 골든 3건을 `--detector claude`(Opus 4.8)로 실감지 →
+  **종합 정밀도 1.00 · 재현율 0.87**(`measurements/README.md`). 실 pred는 `measurements/`에 동결,
+  채점 회귀는 `test_measured_real.py`가 실 API 재호출 없이 고정.
 - **경계 span·tier2 gap 재설계** — 골든 3건째(`payments_postmortem.json`)가 두 gap을 현행 동작으로 스트레스·pin했다: ① 모호성 정책 비대칭(단일=첫출현 추측 vs 스팬=거부) ② 경계 퍼지 tier 부재(창 verbatim 전용 → 경계 인용 1단어 의역이면 전량 소실). 둘 다 매칭 의미론 변경이라 **실측 데이터 확보 후 재설계**(test_gap1/gap2가 재설계 시 알림 역할).
 - **통계 판정층** — 1단계와 공유(clustered bootstrap CI 등). 다중 회의 수집 후.
 
@@ -101,3 +104,7 @@ python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred 
 `fixtures/pred/`의 예측과 `fixtures/response/`의 Claude 응답은 **전부 합성 mock**이다. 실제
 Claude API 호출 결과가 아니며, 어떤 감지 성능도 주장하지 않는다. 채점기·어댑터의 정확성
 (가짜/놓친/타입혼동 분리, 파싱 견고성)을 크레덴셜 없이 검증하기 위한 통제된 입력일 뿐이다.
+
+반면 `measurements/`의 pred는 **실제 Claude API 실호출 산출물**(출처·모델·일자 명기)이다 —
+mock과 디렉터리·README로 명확히 분리한다. **감지 성능 주장은 오직 `measurements/`에서만**,
+출처를 밝히고 한다.
