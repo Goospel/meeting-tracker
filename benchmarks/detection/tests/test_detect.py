@@ -25,7 +25,6 @@ from detect_bench.detect import (
     run_detection,
 )
 from detect_bench.labels import (
-    FlagType,
     load_meeting,
     load_pred_flags,
     pred_flags_from_items,
@@ -75,8 +74,9 @@ def _faithful_response() -> str:
 # ── 프롬프트 빌더 ──────────────────────────────────────────────────────────
 
 def test_prompt_includes_every_transcript_segment_text():
-    p = build_detection_prompt(_meeting())
-    for seg in _meeting()["transcript"]:
+    meeting = _meeting()                               # 골든 1회 로드 재사용(중복 디스크 파싱 제거)
+    p = build_detection_prompt(meeting)
+    for seg in meeting["transcript"]:
         assert seg.text in p, f"세그먼트 {seg.segment_id} 텍스트가 프롬프트에 없음"
 
 
@@ -241,7 +241,7 @@ def test_urllib_post_httperror_becomes_clean_value_error(monkeypatch):
 
     from detect_bench.detect import _urllib_post
 
-    def boom(req):
+    def boom(req, timeout=None):
         raise urllib.error.HTTPError(
             req.full_url, 429, "Too Many Requests", {},
             io.BytesIO(b'{"error":{"message":"rate limited"}}'))
@@ -255,10 +255,12 @@ def test_urllib_post_httperror_becomes_clean_value_error(monkeypatch):
 # ── 리뷰 회귀: 프롬프트 정답 좌표 누출 + 고아 픽스처 (MED/LOW) ──
 
 def test_prompt_example_does_not_prime_golden_answer_coordinates():
-    # 예시가 골든 f1의 좌표(p2 @2510)를 앵커로 주면 감지 벤치가 낙관 편향된다.
-    # 2510은 전사 세그먼트 s23의 시각으로 딱 1번만 나와야 한다(예시가 이를 복제하면 2번).
+    # 예시가 골든 f1의 좌표(p2 @1240·@2510)를 앵커로 주면 감지 벤치가 낙관 편향된다.
+    # 각 시각은 전사 세그먼트의 시각으로 딱 1번만 나와야 한다(예시가 복제하면 2번).
+    # [3R] 2510만 가드하면 예시가 1240을 되노출해도 통과한다 — 두 좌표 모두 가드.
     p = build_detection_prompt(_meeting())
     assert p.count("2510") == 1
+    assert p.count("1240") == 1
 
 
 def test_replay_fixture_file_grounds_and_scores_perfect():
@@ -305,9 +307,10 @@ def test_get_detector_replay_builds_working_port():
 # ── Claude 포트 (크레덴셜 게이트, stdlib HTTP) ──────────────────────────────
 
 def test_claude_port_without_key_raises_credential_error():
-    port = ClaudeDetectorPort(api_key=None)
+    # [3R] 게이트는 생성 시점(__init__) 단일 지점 — detect()까지 가서야 터지면 팩토리와
+    # 직접 생성 경로가 각자 게이트를 복제해야 한다(메시지 드리프트 실재).
     with pytest.raises(DetectorCredentialError):
-        port.detect("프롬프트")
+        ClaudeDetectorPort(api_key=None)
 
 
 def test_get_detector_claude_without_key_raises_credential_error():
@@ -374,7 +377,10 @@ def test_cli_replay_writes_pred_json_that_scores(tmp_path, capsys):
     assert score.overall.tp == 4
 
 
-def test_cli_claude_without_key_clean_error(capsys):
+def test_cli_claude_without_key_clean_error(capsys, monkeypatch):
+    # [3R] 환경변수를 지우고 시작 — 지우지 않으면 키가 설정된 개발 환경에서 이 단위테스트가
+    # 골든 전사 전체를 실제 Anthropic API로 POST한다(과금·행·rc=0 위양성).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     rc = _run_cli(["--golden", str(GOLDEN), "--detector", "claude"])
     assert rc == 2
     err = capsys.readouterr().err
@@ -388,3 +394,230 @@ def test_cli_unextractable_response_clean_error(tmp_path, capsys):
                    "--response", str(resp), "--out", str(tmp_path / "x.json")])
     assert rc == 2
     assert "Traceback" not in capsys.readouterr().err
+
+
+# ── 리뷰 3R 회귀: 파서 극단 카디널리티(0건·1건·절단) + 프롬프트 에코 시딩 뿌리 제거 ──
+# 3R(xhigh) 핵심: 휴리스틱은 '진짜 답 4건' 케이스에선 강했지만 0건·1건·절단에서 뒤집혔다.
+# 뿌리 수정 = 프롬프트 예시를 JSON 문법 밖 표기로(에코가 파싱 후보 자체가 못 되게).
+
+# 프롬프트의 새(비파싱) 예시를 모델이 서두/후미에 그대로 에코했다고 가정한 문자열.
+_UNPARSEABLE_EXAMPLE_ECHO = (
+    '{"flags": [{"id": "1", "type": "모순", "statements": ['
+    '{"speaker": "p1", "quote": "(전사에서 그대로 복사한 앞 발언)", "time_sec": <그 발언의 초>}'
+    ']}]}'
+)
+
+_ONE_FLAG = {"id": "r1", "type": "모순", "statements": [
+    {"speaker": "p2", "quote": "3천만원까지는 무리 없이 쓸 수 있어요"},
+    {"speaker": "p2", "quote": "예산은 2천만원이 상한이라"},
+]}
+
+
+def test_prompt_itself_yields_no_extractable_flags():
+    # [3R 뿌리] 프롬프트가 파싱 가능한 예시/0건 리터럴을 담으면 그 에코가 파서의 후보가 된다 —
+    # 프롬프트 원문에서 flags가 추출되면 안 된다(추출 시 예시가 에코 강탈 후보라는 뜻).
+    with pytest.raises(ValueError):
+        parse_detection_response(build_detection_prompt(_meeting()))
+
+
+def test_parse_zero_detection_survives_example_echo():
+    # [3R P1①] 예시 에코 + 진짜 답 {"flags": []}(정당한 0건) → 0건이 살아남아야 한다.
+    # 구(파싱 가능) 예시였다면 에코 n=1 > 진짜 n=0으로 더미가 채택돼 가짜 FP 1건이 됐다.
+    raw = ("예시 형식 재확인: " + _UNPARSEABLE_EXAMPLE_ECHO
+           + '\n실제 결과: {"flags": []}')
+    assert parse_detection_response(raw) == []
+
+
+def test_parse_single_flag_answer_survives_trailing_example_echo():
+    # [3R P1②] 진짜 1-flag 답 뒤에 예시 에코 — 동수 타이브레이크로 에코가 이기면 안 된다.
+    raw = (json.dumps({"flags": [_ONE_FLAG]}, ensure_ascii=False)
+           + "\n참고로 예시 형식은 " + _UNPARSEABLE_EXAMPLE_ECHO + " 입니다.")
+    assert [f["id"] for f in parse_detection_response(raw)] == ["r1"]
+
+
+def test_parse_bare_array_answer_beats_trailing_empty_wrapper_echo():
+    # [3R P3] 진짜 답이 bare 배열(공식 지원 형태) + 후행 규칙 에코 {"flags": []} —
+    # 빈 컨테이너의 절대 우선권이 내용 있는 flag스러운 후보를 강탈하면 안 된다.
+    raw = (json.dumps(_FAITHFUL_JSON["flags"], ensure_ascii=False)
+           + '\n흐름단절이 없으면 {"flags": []} 를 출력합니다.')
+    assert [f["id"] for f in parse_detection_response(raw)] == ["d1", "d2", "d3", "d4"]
+
+
+def test_parse_statement_dict_echo_container_does_not_beat_real_flags():
+    # [3R P4] flag 수 카운트는 '임의 dict'가 아니라 flag스러운 dict만 세야 한다 —
+    # statement dict 3개짜리 기형 에코가 진짜 2-flag 답을 수로 누르면 안 된다.
+    echo = ('{"flags": [{"speaker": "p1", "quote": "x"}, '
+            '{"speaker": "p2", "quote": "y"}, {"speaker": "p3", "quote": "z"}]}')
+    real = json.dumps({"flags": [
+        _ONE_FLAG,
+        {"id": "r2", "type": "번복", "statements": [{"speaker": "p1", "quote": "b"}]},
+    ]}, ensure_ascii=False)
+    assert [f["id"] for f in parse_detection_response(echo + "\n" + real)] == ["r1", "r2"]
+
+
+def test_parse_truncated_wrapper_raises_clean_not_partial_salvage():
+    # [3R P2ⓑ] max_tokens 절단 등으로 {"flags": [...} 래퍼가 미완성이면, 완성된 내부 flag
+    # 조각을 주워 '부분 결과'로 무성 통과하면 안 된다(10건 감지→1건 둔갑) — 클린 에러.
+    full = json.dumps(_FAITHFUL_JSON, ensure_ascii=False)
+    truncated = full[: full.index('"d3"')]              # 3번째 flag 중간에서 절단
+    with pytest.raises(ValueError):
+        parse_detection_response(truncated)
+
+
+def test_parse_fallback_prefers_larger_flaglike_candidate():
+    # [3R P2ⓐ] flags 래퍼가 전무할 때 차선은 '첫 후보'가 아니라 flag스러운 원소가 가장 많은
+    # 후보 — 서두의 flag스러운 에코 오브젝트가 뒤의 진짜 bare 배열을 강탈하면 안 된다.
+    raw = ('예: {"id": "0", "type": "모순", "statements": []}\n'
+           + json.dumps(_FAITHFUL_JSON["flags"], ensure_ascii=False))
+    assert [f["id"] for f in parse_detection_response(raw)] == ["d1", "d2", "d3", "d4"]
+
+
+def test_parse_degenerate_nesting_raises_clean_not_recursionerror():
+    # [3R P5] '['*3000 같은 퇴화 입력의 RecursionError가 파서·CLI except절을 뚫으면 안 된다.
+    with pytest.raises(ValueError):
+        parse_detection_response("[" * 3000)
+
+
+def test_parse_recovers_flags_after_degenerate_nesting():
+    # 퇴화 구간이 앞에 있어도 그 뒤의 유효한 flags 컨테이너에 도달해야 한다.
+    raw = "[" * 3000 + "\n" + json.dumps(_FAITHFUL_JSON, ensure_ascii=False)
+    assert len(parse_detection_response(raw)) == 4
+
+
+def test_parse_all_nondict_flags_container_raises():
+    # [3R] '전량 비-dict flags' 가드는 CLI의 버려지는 조기 검증이 아니라 파서 자신의 계약 —
+    # 어댑터 경유 모든 호출자가 같은 가드를 얻는다.
+    with pytest.raises(ValueError):
+        parse_detection_response('{"flags": ["1. 모순: ...", "2. 번복: ..."]}')
+
+
+def test_api_response_max_tokens_truncation_raises_clean():
+    # [3R P6] stop_reason=max_tokens면 텍스트가 정상처럼 보여도 절단이다 — 파서로 흘려보내
+    # 부분 결과가 되기 전에 포트에서 클린 에러로 잡는다.
+    def truncating(url, headers, body):
+        return json.dumps({
+            "stop_reason": "max_tokens",
+            "content": [{"type": "text", "text": '{"flags": [{"id": "1", "type"'}],
+        }).encode("utf-8")
+
+    port = ClaudeDetectorPort(api_key="sk-test", transport=truncating)
+    with pytest.raises(ValueError) as ei:
+        port.detect("프롬프트")
+    assert "max_tokens" in str(ei.value)
+
+
+def test_api_error_message_nonstring_still_clean_valueerror():
+    # [3R P8] 비표준 게이트웨이가 error.message를 dict로 줘도 TypeError(트레이스백)가 아니라
+    # 클린 ValueError — 클린 에러 처리를 위해 존재하는 함수가 그 경로에서 죽으면 안 된다.
+    def bad(url, headers, body):
+        return json.dumps({"error": {"message": {"detail": "quota"}}}).encode("utf-8")
+
+    port = ClaudeDetectorPort(api_key="sk-test", transport=bad)
+    with pytest.raises(ValueError):
+        port.detect("프롬프트")
+
+
+def test_urllib_post_passes_finite_timeout(monkeypatch):
+    # [3R P9] timeout 없는 urlopen은 소켓 기본이 무한이라 네트워크 스톨 시 CLI가 영구 행 —
+    # 유한 timeout이 전달돼야 한다(socket.timeout은 OSError라 기존 클린 에러 경로에 잡힘).
+    import urllib.request
+
+    from detect_bench.detect import _urllib_post
+
+    captured = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(req, timeout=None):
+        captured["timeout"] = timeout
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    _urllib_post("https://api.anthropic.com/v1/messages", {}, b"{}")
+    assert captured["timeout"] is not None and captured["timeout"] > 0
+
+
+def test_claude_port_whitespace_key_raises_credential_error():
+    # [3R P10] 공백만 든 키(.env 실수)는 truthy라 falsy 게이트를 뚫고 실 네트워크 401까지
+    # 간다 — 게이트는 strip 후 판정해야 안내 메시지(--detector replay 힌트)가 유지된다.
+    with pytest.raises(DetectorCredentialError):
+        ClaudeDetectorPort(api_key="   ")
+    with pytest.raises(DetectorCredentialError):
+        get_detector("claude", api_key=" ")
+
+
+def test_get_detector_forwards_max_tokens():
+    # [3R P7] 팩토리가 max_tokens를 포워딩하지 않으면 절단(P6) 완화 수단이 지원 경로에 없다.
+    port = get_detector("claude", api_key="sk-test", max_tokens=8192)
+    assert port._max_tokens == 8192
+
+
+def test_cli_accepts_max_tokens_flag(capsys, monkeypatch):
+    # [3R P7] CLI에도 상한 조정 노브가 있어야 한다 — 키 없이도 플래그 파싱 자체는 성립(rc=2).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    rc = _run_cli(["--golden", str(GOLDEN), "--detector", "claude", "--max-tokens", "8192"])
+    assert rc == 2                                     # 크레덴셜 게이트(플래그는 정상 수용)
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_cli_out_write_failure_is_clean_error(tmp_path, capsys):
+    # [3R P11] 출력 쓰기 실패(OSError)도 로드/감지 실패와 같은 클린 에러(rc=2) — 쓰기 블록만
+    # try 밖이면 감지까지 성공한 뒤 트레이스백으로 죽는 비대칭이 생긴다.
+    resp = tmp_path / "resp.txt"
+    resp.write_text(_faithful_response(), encoding="utf-8")
+    blocker = tmp_path / "blocker.txt"
+    blocker.write_text("파일", encoding="utf-8")
+    rc = _run_cli(["--golden", str(GOLDEN), "--detector", "replay",
+                   "--response", str(resp), "--out", str(blocker / "pred.json")])
+    assert rc == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_cli_scrubs_nonfinite_to_null_in_pred_file(tmp_path, capsys):
+    # [3R P12] 응답 속 NaN/Infinity가 pred 파일에 그대로 직렬화되면 RFC 8259 위반 산출물 —
+    # 신뢰 불가 좌표는 null로 강등(per-flag 강등 철학)하고 파일은 표준 JSON을 유지한다.
+    resp = tmp_path / "resp.txt"
+    resp.write_text(
+        '{"flags": [{"id": "1", "type": "모순", "statements": '
+        '[{"speaker": "p1", "quote": "x", "time_sec": NaN}]}]}',
+        encoding="utf-8")
+    out = tmp_path / "pred.json"
+    rc = _run_cli(["--golden", str(GOLDEN), "--detector", "replay",
+                   "--response", str(resp), "--out", str(out)])
+    assert rc == 0
+    text = out.read_text(encoding="utf-8")
+
+    def _no_const(name):                               # 표준 JSON 검증 — NaN/Infinity 리터럴 금지
+        raise AssertionError(f"비표준 JSON 상수: {name}")
+
+    data = json.loads(text, parse_constant=_no_const)
+    assert data["flags"][0]["statements"][0]["time_sec"] is None
+
+
+def test_prompt_title_null_renders_default_not_none():
+    # [3R P17] 명시적 null title은 dict.get 기본값을 우회한다 — 'None'이 프롬프트에 새면 안 됨.
+    meeting = {"meta": {"title": None, "participants": [
+        {"id": None, "name": None, "role": "PM"}]}, "transcript": []}
+    p = build_detection_prompt(meeting)
+    assert "(제목 없음)" in p
+    assert "None" not in p
+
+
+def test_prompt_participant_partial_fields_render_clean():
+    # [3R SW3] name/role 중 하나만 있는 참석자가 '- p1 (, 영업)' 기형으로 렌더되면 안 된다.
+    meeting = {"meta": {"title": "회의", "participants": [
+        {"id": "p1", "role": "영업"},
+        {"id": "p2", "name": "박팀장"},
+    ]}, "transcript": []}
+    p = build_detection_prompt(meeting)
+    assert "- p1 (영업)" in p
+    assert "- p2 (박팀장)" in p
+    assert "(, " not in p and ", )" not in p

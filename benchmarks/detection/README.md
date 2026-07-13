@@ -38,12 +38,13 @@ detect_bench/
   score.py      감지 채점기 — 그리디 매칭 · per-type P/R/F1 · 가짜/놓친 분리 · type_confusion
   report.py     회의 단위 마크다운 리포트 + CLI
   detect.py     감지 어댑터 — 전사 → 프롬프트 → 감지 포트(리플레이/Claude) → 응답 파싱 → pred flags
+  cliutil.py    CLI 공용 유틸 — force_utf8_stdio (T-027 단일 출처)
 fixtures/
   golden/luma_meeting.json          골든 회의 1건 (전사 25세그 + flag 4종) — docs/data-schema.json 재사용
   pred/luma_meeting.faithful.json   mock 예측: 완벽 재현 (전부 합성, 실제 API 아님)
   pred/luma_meeting.contaminated.json  mock 예측: 4가지 실패모드 심음
   response/luma_meeting.claude.txt  캔드 Claude 응답(리플레이용) — 크레덴셜 없이 어댑터 관통 검증
-tests/          146개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터 + 적대적 리뷰 회귀)
+tests/          168개 테스트 (스키마·grounding·매칭·실패모드 분리·리포트·어댑터 + 적대적 리뷰 회귀)
 ```
 
 ## 감지 어댑터 (전사 → pred JSON)
@@ -80,6 +81,7 @@ python -m detect_bench.report --golden fixtures/golden/luma_meeting.json --pred 
 # 실제 Claude 감지 (크레덴셜 필요 — 어댑터는 동일, 포트만 스왑)
 #   ANTHROPIC_API_KEY=... python -m detect_bench.detect \
 #     --golden fixtures/golden/luma_meeting.json --detector claude --out pred.json
+#   (응답이 max_tokens로 절단되면 클린 에러 — --max-tokens 를 올려 재시도)
 ```
 
 ## 스코프 경계 — 크레덴셜/다음 단계로 미룬 것

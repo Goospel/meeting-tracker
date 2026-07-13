@@ -368,6 +368,30 @@ def test_golden_nonstring_metadata_raises_pred_degrades():
     assert flags[0].severity == "medium" and flags[0].title == ""
 
 
+# ── 리뷰 3R 회귀: 공용 진입점 컨테이너 가드 + 유한 숫자 판정 ──────────────────
+
+def test_pred_items_nonlist_container_is_clean_error():
+    # [3R P15] '파일/어댑터 공용 진입점'이 컨테이너 가드 없이 dict를 받으면 키(문자열) 순회로
+    # '전량 파싱 불가' 오진을 낸다 — 리스트가 아니면 그 사실을 말하는 클린 에러여야 한다.
+    from detect_bench.labels import pred_flags_from_items
+    with pytest.raises(ValueError) as ei:
+        pred_flags_from_items({"flags": [{"id": "a", "type": "모순", "statements": []}]})
+    assert "리스트" in str(ei.value)                   # '전량 파싱 불가' 오진 메시지가 아님
+
+
+def test_golden_infinite_seconds_are_clean_error():
+    # [3R P16] _is_num이 NaN만 거르고 ±Infinity를 통과시키면 f"{start_sec:.0f}"가 '[infs]'로
+    # 프롬프트에 새고 힌트 산술도 무성 퇴화한다 — 유한 판정은 isfinite여야 독스트링과 일치.
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [
+            {"id": "s1", "speaker": "p1", "text": "x", "start_sec": float("inf")}],
+            "flags": []})
+    with pytest.raises(ValueError):
+        meeting_from_data({"transcript": [], "flags": [
+            {"id": "f1", "type": "모순",
+             "statements": [{"speaker": "p1", "quote": "x", "time_sec": float("-inf")}]}]})
+
+
 def test_golden_fuzzy_quote_near_boundary_still_validates():
     # [리뷰4 G7a] 인용이 경계를 살짝 넘는(tier-2 퍼지) 골든이 span 확장 탓에 이웃 세그먼트
     # 역참조를 요구받아 오거부되면 안 된다 — 골든 grounding은 단일 세그먼트(main 의미론).
