@@ -10,6 +10,15 @@
 
 ---
 
+## 2026-07-14
+
+### feat · 파이프라인 3단계 착수 — 상태머신 순수 코어(비동기 형상·정확히-한번 seam) ([PR #16](https://github.com/Goospel/meeting-tracker/pull/16))
+- 구축순서 **3단계(파이프라인 통합) Python 우선 MVP** 착수. **순서 결정 확정**: 파이프라인(3·4)은 타당성 게이트(이미 실측 정밀도 1.00·재현율 0.87로 통과)로만, 비싼 인프라 스케일(5·6)만 통계 유의 게이트(n≥6) 뒤에. 스택은 기존 감지·STT 벤치 코어 재사용(재구현 0), 프로덕션 Spring/RDS 전환은 stage 5에서 포트 스왑. **판단 패널 워크플로우**(3 설계 철학 → 적대 비평 → 종합)로 5-PR 분해 확정 — 비평이 리스크우선의 HMAC 조기구현(벤더 스펙 없이 추측 = 재작성 리스크 제조)을 탈락시키고, sqlite 근거를 '회의가 쌓인다'(리플레이는 신규 0건)가 아니라 '크래시복구·정확히-한번 의미론 선굳힘'으로 정직 교정.
+- **PR-1**: 새 top-level `pipeline/`(제품 코드 디렉터리) + `pipeline_core/state.py` 상태머신 순수 코어 — State 8종·명시 전이표·불변식(단계 스킵/터미널 재전이 금지·중복 콜백 멱등 no-op)·실패/재시도(failed_from에서 재개 = ANALYZING 실패 시 재-STT 회피·max_attempts 소진→PERMANENTLY_FAILED). **비동기 형상**(SUBMIT_STT는 TRANSCRIBING 유지, 별도 STT_CALLBACK이 와야 TRANSCRIBED)을 못박아 실 클로바(비동기 잡+웹훅 콜백) 전환 시 오케스트레이터 전면 재작성을 선제 차단. **ANALYZED 중간 상태**로 '감지 산출됨/커밋 전'을 분리 → PR5 크래시복구 정확히-한번 재개 seam. IO·포트·영속화 0, Clock/IdSource 주입으로 전이 ts·id 결정적. 루트 conftest로 detect_bench 크로스패키지 import 배선(test_wiring 고정 → PR3~4 재사용 보증). RETRYING 상태는 단일-이벤트 재개 정의상 도달 불가 의례 상태라 미도입(YAGNI·altitude).
+- **적대적 리뷰 반영**(토대라 후속 PR 전파 전 선점): 전이표·멱등 순서·재시도 회계는 견고 확인, **소비자 계약 구멍 4종** 수정 — ① COMMIT-후-DONE 재전달이 멱등 계약 위반해 raise(자기모순)→터미널을 만든 이벤트의 중복만 no-op ② STT_CALLBACK/ANALYSIS_DONE가 ref=None이어도 전진(빈 전사 위 재감지 위험)→실 전이 시 ref 필수 fail-loud ③ `State(str,Enum)`+`is` 비교가 PR2 문자열 rehydrate 시 재개 불가 지뢰→Job `__post_init__` 문자열→Enum 정규화 ④ FAILED 전진 이벤트 에러 메시지 오도 교정. zero-dep·TDD **42테스트**(Red 먼저 확인 후 Green, 리뷰 갭 회귀 9종 추가).
+
+---
+
 ## 2026-07-13
 
 ### fix · 통계 판정층 max-effort 리뷰 — 판정 정확성 결함 15종 수정 ([PR #15](https://github.com/Goospel/meeting-tracker/pull/15), 동일 브랜치)

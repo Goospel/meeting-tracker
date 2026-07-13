@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meeting-pipeline"
+version = "0.1.0"
+description = "단일사용자 파이프라인 — 업로드→STT→분석 상태머신 (meeting-tracker 3단계, Python 우선 MVP)"
+requires-python = ">=3.11"
+# 런타임 의존성 0 — 표준 라이브러리(dataclasses·enum·sqlite3·urllib·json·hashlib)만.
+# 벤치 3종(detect_bench·stt_bench·bench_stats)과 같은 zero-dep DNA를 제품 코어에도 이어,
+# 서드파티 유입 0을 전이적으로 보존한다. 프로덕션 Spring/RDS 전환은 멀티테넌시(5단계)에서.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pipeline_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
